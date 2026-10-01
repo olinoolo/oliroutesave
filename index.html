@@ -1,0 +1,123 @@
+
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLI RouteSave</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#101827;color:#fff;padding:20px}
+header{text-align:center;padding:20px 0}
+.logo{font-size:32px;font-weight:bold;color:#40d6a0}
+.subtitle{color:#aab5c5;margin-top:8px}
+.card{background:#1b2638;padding:18px;border-radius:16px;margin:18px 0;border:1px solid #344258}
+h2{font-size:20px;margin-top:0}
+label{display:block;margin:14px 0 7px;color:#cbd5e1}
+input{width:100%;padding:14px;border-radius:9px;border:1px solid #526078;background:#101827;color:white;font-size:17px}
+button{width:100%;padding:15px;border:0;border-radius:10px;background:#20bd86;color:#071b17;font-size:17px;font-weight:bold;margin-top:18px}
+.result{font-size:25px;color:#40d6a0;font-weight:bold;text-align:center;margin:20px 0}
+.small{font-size:13px;color:#aab5c5;text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+<div class="logo">OLI RouteSave</div>
+<div class="subtitle">Cestuj rozumnejšie. Šetri peniaze.</div>
+</header>
+
+<div class="card">
+<h2>🚗 Moje vozidlo</h2>
+
+<label>Priemerná spotreba (l/100 km)</label>
+<input id="consumption" type="number" value="6.5" step="0.1">
+
+<label>Cena paliva za liter (€)</label>
+<input id="fuelPrice" type="number" value="1.60" step="0.01">
+
+<button onclick="saveCar()">Uložiť vozidlo</button>
+<p class="small" id="saved"></p>
+</div>
+
+<div class="card">
+<h2>🗺️ Výpočet cesty</h2>
+
+<label>Odkiaľ</label>
+<input id="from" placeholder="Napr. Myjava">
+
+<label>Kam</label>
+<input id="to" placeholder="Napr. Mníchov">
+
+<label>Vzdialenosť (km)</label>
+<input id="distance" type="number" placeholder="Zadaj kilometre">
+
+<label>Parkovanie (€)</label>
+<input id="parking" type="number" value="0" step="0.01">
+
+<label>Mýto (€)</label>
+<input id="toll" type="number" value="0" step="0.01">
+
+<label>
+<input id="returnTrip" type="checkbox" style="width:auto">
+ Spiatočná cesta
+</label>
+
+<button onclick="calculate()">VYPOČÍTAŤ CENU CESTY</button>
+</div>
+
+<div class="card" id="results" style="display:none">
+<h2>📊 Výsledok cesty</h2>
+<div class="result" id="total"></div>
+<p id="details"></p>
+</div>
+
+<p class="small">OLI RouteSave • Prvá testovacia verzia</p>
+
+<script>
+function saveCar(){
+localStorage.setItem("oliConsumption",document.getElementById("consumption").value);
+localStorage.setItem("oliFuelPrice",document.getElementById("fuelPrice").value);
+document.getElementById("saved").textContent="✓ Vozidlo bolo uložené.";
+}
+
+window.onload=function(){
+if(localStorage.getItem("oliConsumption")){
+document.getElementById("consumption").value=localStorage.getItem("oliConsumption");
+}
+if(localStorage.getItem("oliFuelPrice")){
+document.getElementById("fuelPrice").value=localStorage.getItem("oliFuelPrice");
+}
+};
+
+function calculate(){
+let km=Number(document.getElementById("distance").value);
+let consumption=Number(document.getElementById("consumption").value);
+let price=Number(document.getElementById("fuelPrice").value);
+let parking=Number(document.getElementById("parking").value)||0;
+let toll=Number(document.getElementById("toll").value)||0;
+
+if(!km||km<=0||!consumption||consumption<=0||price<=0){
+alert("Skontroluj vzdialenosť, spotrebu a cenu paliva.");
+return;
+}
+
+let factor=document.getElementById("returnTrip").checked?2:1;
+let totalKm=km*factor;
+let liters=totalKm*consumption/100;
+let fuelCost=liters*price;
+let total=fuelCost+parking*factor+toll*factor;
+
+document.getElementById("results").style.display="block";
+document.getElementById("total").textContent=total.toFixed(2)+" €";
+document.getElementById("details").innerHTML=
+"Cesta: "+document.getElementById("from").value+" → "+document.getElementById("to").value+
+"<br><br>Vzdialenosť: "+totalKm+" km"+
+"<br>Spotreba paliva: "+liters.toFixed(2)+" l"+
+"<br>Palivo: "+fuelCost.toFixed(2)+" €"+
+"<br>Parkovanie: "+(parking*factor).toFixed(2)+" €"+
+"<br>Mýto: "+(toll*factor).toFixed(2)+" €";
+}
+</script>
+</body>
+</html>
