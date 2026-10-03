@@ -29,7 +29,11 @@ button{width:100%;padding:15px;border:0;border-radius:10px;background:#20bd86;co
 
 <div class="card">
 <h2>🚗 Moje vozidlo</h2>
+<label>Značka vozidla</label>
+<input id="vehicleBrand" type="text" placeholder="Napr. Audi">
 
+<label>Model vozidla</label>
+<input id="vehicleModel" type="text" placeholder="Napr. A6 C7">
 <label>Priemerná spotreba (l/100 km)</label>
 <input id="consumption" type="number" value="6.5" step="0.1">
 
@@ -75,13 +79,20 @@ button{width:100%;padding:15px;border:0;border-radius:10px;background:#20bd86;co
 <p class="small">OLI RouteSave • Prvá testovacia verzia</p>
 
 <script>
-function saveCar(){
+function saveCar(){localStorage.setItem("oliBrand",document.getElementById("vehicleBrand").value);
+localStorage.setItem("oliModel",document.getElementById("vehicleModel").value);
 localStorage.setItem("oliConsumption",document.getElementById("consumption").value);
 localStorage.setItem("oliFuelPrice",document.getElementById("fuelPrice").value);
 document.getElementById("saved").textContent="✓ Vozidlo bolo uložené.";
 }
 
 window.onload=function(){
+ if(localStorage.getItem("oliBrand")){
+document.getElementById("vehicleBrand").value=localStorage.getItem("oliBrand");
+}
+if(localStorage.getItem("oliModel")){
+document.getElementById("vehicleModel").value=localStorage.getItem("oliModel");
+}
 if(localStorage.getItem("oliConsumption")){
 document.getElementById("consumption").value=localStorage.getItem("oliConsumption");
 }
