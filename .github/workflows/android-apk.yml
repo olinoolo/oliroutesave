@@ -32,6 +32,53 @@ jobs:
           test -f android-project/settings.gradle.kts
           test -f android-project/app/build.gradle.kts
 
+      - name: Apply source compatibility fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("android-project/app/src/main/java/com/oli/routesave")
+
+          def replace(path, old, new, count=1):
+              p = root / path
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:90]!r}")
+              p.write_text(s.replace(old, new, count))
+
+          replace(Path("android/runtime/DriveRuntimeBridge.kt"), "voiceRuntime.reset()", "voiceRuntime.interrupt(UnifiedVoiceEventType.SESSION_TIMEOUT)")
+          replace(Path("communication/ContactAliasCallResolver.kt"), "aliasRepository.findByAlias(cleaned)", "aliasRepository.find(cleaned)")
+          replace(Path("communication/ContactAliasCallResolver.kt"), "\ndata class ContactCandidate(\n    val contactId: String,\n    val displayName: String\n)\n", "\n")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "override suspend fun saveAlias(alias: ContactAlias)", "override suspend fun save(alias: ContactAlias)")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "override suspend fun findByAlias(alias: String)", "override suspend fun find(alias: String)")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "override suspend fun removeAlias(alias: String): Boolean", "override suspend fun remove(alias: String)")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "if (normalized.isEmpty()) return false", "if (normalized.isEmpty()) return")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "if (!preferences.contains(key)) return false", "if (!preferences.contains(key)) return")
+          replace(Path("communication/SharedPreferencesContactAliasRepository.kt"), "return true\n        }\n    }\n\n    override suspend fun allAliases()", "return\n        }\n    }\n\n    override suspend fun allAliases()")
+          replace(Path("communication/AndroidContactPermissionState.kt"), "    val phoneNumbers: List<ContactPhoneNumber>\n", "    val phoneNumbers: List<ContactPhoneNumber> = emptyList()\n")
+          replace(Path("ui/RouteSaveHomeController.kt"), "profile?.displayName ?: \"Nikolas\"", "profile?.displayName() ?: \"Nikolas\"")
+          compose = root / "ui/compose/RouteSaveComposeApp.kt"
+          s = compose.read_text()
+          imports = [
+              "import androidx.compose.runtime.DisposableEffect",
+              "import androidx.compose.material3.LinearProgressIndicator",
+              "import androidx.compose.material.icons.filled.RecordVoiceOver",
+              "import androidx.compose.material.icons.filled.VerifiedUser",
+              "import androidx.compose.material.icons.filled.Search",
+              "import androidx.compose.material.icons.filled.Stop",
+              "import androidx.compose.material.icons.filled.VolumeOff",
+              "import com.oli.routesave.travel.TravelMode",
+          ]
+          marker = "package com.oli.routesave.ui.compose\n"
+          s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
+          s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
+          s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
+          compose.write_text(s)
+          p = root / "voice/assistant/VoiceAssistantSettingsController.kt"
+          s = p.read_text().replace("AssistantProfileCatalog.all()", "AssistantProfileCatalog.all")
+          p.write_text(s)
+          print("Applied compatibility fixes.")
+          PY
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
