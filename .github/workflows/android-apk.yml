@@ -45,6 +45,7 @@ jobs:
                   raise SystemExit(f"Expected text not found in {path}: {old[:90]!r}")
               p.write_text(s.replace(old, new, count))
 
+          replace(Path("android/runtime/DriveRuntimeBridge.kt"), "import com.oli.routesave.voice.runtime.UnifiedVoiceRuntime", "import com.oli.routesave.voice.runtime.UnifiedVoiceRuntime\nimport com.oli.routesave.voice.runtime.UnifiedVoiceEventType")
           replace(Path("android/runtime/DriveRuntimeBridge.kt"), "voiceRuntime.reset()", "voiceRuntime.interrupt(UnifiedVoiceEventType.SESSION_TIMEOUT)")
           replace(Path("communication/ContactAliasCallResolver.kt"), "aliasRepository.findByAlias(cleaned)", "aliasRepository.find(cleaned)")
           replace(Path("communication/ContactAliasCallResolver.kt"), "\ndata class ContactCandidate(\n    val contactId: String,\n    val displayName: String\n)\n", "\n")
