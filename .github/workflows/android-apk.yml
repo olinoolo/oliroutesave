@@ -78,7 +78,7 @@ jobs:
           # The notification-listener service is not needed for the current MVP
           # and can trigger Google Play Protect's sideloading block. Keep it out
           # until its purpose, disclosure, and user-consent flow are reviewed.
-          manifest = root / "AndroidManifest.xml"
+          manifest = root.parents[3] / "AndroidManifest.xml"
           manifest.write_text(manifest.read_text().replace(
               '    <service\n            android:name="com.oli.routesave.messaging.RouteSaveNotificationListenerService"\n            android:label="OLI RouteSave – správy"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n',
               ''
