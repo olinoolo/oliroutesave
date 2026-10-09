@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "OLI_RouteSave_Android_FINAL_PROJECT_44_00.zip"
+      - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
@@ -44,6 +45,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
