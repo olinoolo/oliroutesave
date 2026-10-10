@@ -461,6 +461,34 @@ jobs:
 
           res = manifest.parent / "res"
           image = Image.open(icon_source).convert("RGBA")
+
+          # Use the full official brand artwork inside the app, not only the
+          # orange circular "OLI" placeholder currently shown on Home.
+          brand_target = res / "drawable-nodpi" / "oli_brand_logo.png"
+          brand_target.parent.mkdir(parents=True, exist_ok=True)
+          image.save(brand_target, optimize=True)
+
+          compose = root / "app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
+          source = compose.read_text()
+          package_marker = "package com.oli.routesave.ui.compose\\n"
+          if "import androidx.compose.foundation.Image" not in source:
+              source = source.replace(package_marker, package_marker + "\\nimport androidx.compose.foundation.Image\\n", 1)
+          if "import androidx.compose.ui.res.painterResource" not in source:
+              source = source.replace(package_marker, package_marker + "import androidx.compose.ui.res.painterResource\\n", 1)
+          old_logo = """            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(46.dp)) {
+                  Box(contentAlignment = Alignment.Center) {
+                      Text("OLI", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                  }
+              }"""
+          new_logo = """            Image(
+                  painter = painterResource(id = com.oli.routesave.R.drawable.oli_brand_logo),
+                  contentDescription = "Oficiálne logo OLI RouteSave – Save money. Travel smarter.",
+                  modifier = Modifier.size(width = 112.dp, height = 76.dp)
+              )"""
+          if old_logo not in source:
+              raise SystemExit("Home screen orange OLI placeholder not found exactly; refusing to replace the logo unsafely.")
+          source = source.replace(old_logo, new_logo, 1)
+          compose.write_text(source)
           for folder, size in {
               "mipmap-mdpi": 48,
               "mipmap-hdpi": 72,
