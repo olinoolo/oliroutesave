@@ -207,14 +207,14 @@ jobs:
               marker = 'dependencies {'
               if marker not in gradle:
                   raise SystemExit("Could not find app dependencies block.")
-              additions = "\\n".join(line for line in (dependency, lifecycleComposeDependency) if line not in gradle)
-              gradle = gradle.replace(marker, marker + "\\n" + additions, 1)
+              additions = "\n".join(line for line in (dependency, lifecycleComposeDependency) if line not in gradle)
+              gradle = gradle.replace(marker, marker + "\n" + additions, 1)
               app_gradle.write_text(gradle)
 
           manifest = project / "app/src/main/AndroidManifest.xml"
           xml = manifest.read_text()
           if 'android.permission.INTERNET' not in xml:
-              xml = xml.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n    <uses-permission android:name="android.permission.INTERNET" />', 1)
+              xml = xml.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET" />', 1)
               manifest.write_text(xml)
 
           package_dir = project / "app/src/main/java/com/oli/routesave/ui/compose"
