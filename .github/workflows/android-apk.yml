@@ -93,18 +93,31 @@ jobs:
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
           s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
           s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
-          # Use the last successfully calculated road distance as the calculator's starting value.
-          calculator_pattern = re.compile(r'(@Composable\s+private fun TripCostQuickCalculator\s*\([^)]*\)\s*\{)', re.S)
-          match = calculator_pattern.search(s)
+          # Locate the calculator wherever it is defined in the Android project.
+          calculator_file = None
+          calculator_source = None
+          for candidate in project.glob("app/src/main/java/**/*.kt"):
+              candidate_source = candidate.read_text()
+              if "TripCostQuickCalculator" in candidate_source and "distanceText" in candidate_source:
+                  calculator_file, calculator_source = candidate, candidate_source
+                  break
+          if calculator_file is None:
+              raise SystemExit("Could not safely locate the trip calculator source.")
+          calculator_pattern = re.compile(r'(@Composable\s+(?:private\s+)?fun\s+TripCostQuickCalculator\s*\([^)]*\)\s*\{)', re.S)
+          match = calculator_pattern.search(calculator_source)
           if not match:
-              raise SystemExit("TripCostQuickCalculator function not found; refusing to fake route-to-cost integration.")
-          s = s[:match.end()] + '\n    val routeContext = androidx.compose.ui.platform.LocalContext.current' + s[match.end():]
+              raise SystemExit("Calculator declaration not found; refusing an unsafe patch.")
+          if "last_distance_km" not in calculator_source:
+              calculator_source = calculator_source[:match.end()] + '\n    val routeContext = androidx.compose.ui.platform.LocalContext.current' + calculator_source[match.end():]
           old_distance_state = 'var distanceText by rememberSaveable { mutableStateOf("") }'
           new_distance_state = '''val lastRouteKm = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getFloat("last_distance_km", 0f)
           var distanceText by rememberSaveable(lastRouteKm) { mutableStateOf(if (lastRouteKm > 0f) String.format(java.util.Locale.getDefault(), "%.1f", lastRouteKm) else "") }'''
-          if old_distance_state not in s:
-              raise SystemExit("Expected empty calculator distance state not found; refusing to patch an unknown implementation.")
-          s = s.replace(old_distance_state, new_distance_state, 1)
+          if old_distance_state in calculator_source:
+              calculator_source = calculator_source.replace(old_distance_state, new_distance_state, 1)
+          elif "last_distance_km" not in calculator_source:
+              raise SystemExit("Calculator distance field has changed; refusing an unsafe patch.")
+          calculator_file.write_text(calculator_source)
+          print(f"Connected saved route distance to calculator source: {calculator_file}")
 
           # Never prefill a fake 100 km distance: until a real route provider returns
           # road distance, require the user to enter a measured distance explicitly.
