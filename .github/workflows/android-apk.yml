@@ -379,6 +379,43 @@ jobs:
           print("Applied OLI RouteSave branded launcher icon.")
           PY
 
+      - name: Remove fake navigation values from Drive screen
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          old = '''                Text("Pokračujte po trase", color = Color.White)
+                Text("O 2,5 km odbočte doprava", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 21.sp)
+            }
+        }
+        MapPlaceholder("Živá mapa a poloha vozidla", Modifier.fillMaxWidth().weight(1f).height(180.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetricCard("Zostáva", "52 km", Modifier.weight(1f))
+            MetricCard("Príchod", "11:12", Modifier.weight(1f))
+            MetricCard("Rýchlosť", "-- km/h", Modifier.weight(1f))
+'''
+          new = '''                Text("Navigácia ešte nie je pripojená", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(
+                    "Pokyny na odbočenie a vzdialenosť sa zobrazia až po výpočte skutočnej trasy. Táto obrazovka zatiaľ neslúži na navigovanie.",
+                    color = Color.White
+                )
+            }
+        }
+        MapLibreMapView(Modifier.fillMaxWidth().weight(1f).height(180.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetricCard("Zostáva", "— km", Modifier.weight(1f))
+            MetricCard("Príchod", "—", Modifier.weight(1f))
+            MetricCard("Rýchlosť", "-- km/h", Modifier.weight(1f))
+'''
+          if old not in s:
+              raise SystemExit("Drive screen pattern not found; refusing to patch uncertain source.")
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          print("Removed hard-coded turn instruction, remaining distance and arrival time.")
+          PY
+
       - name: Give test build a separate app ID
         run: |
           cat >> android-project/app/build.gradle.kts <<'GRADLE'
