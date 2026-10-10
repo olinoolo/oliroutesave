@@ -92,6 +92,9 @@ jobs:
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
           s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
           s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
+          # Never prefill a fake 100 km distance: until a real route provider returns
+          # road distance, require the user to enter a measured distance explicitly.
+          s = s.replace('var distanceText by rememberSaveable { mutableStateOf("100") }', 'var distanceText by rememberSaveable { mutableStateOf("") }', 1)
           compose.write_text(s)
 
           # The notification-listener service is not needed for the current MVP
