@@ -169,6 +169,25 @@ jobs:
                   print(f"{i+1}: {line}")
           PY
 
+
+      - name: Inspect route and community implementation before feature fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          lines = p.read_text().splitlines()
+          for i, line in enumerate(lines):
+              if any(token in line for token in ("private fun RouteScreen", "private fun Community", "Button(onClick = {},", "OutlinedButton(onClick = {},", "rememberSaveable { mutableStateOf(100", "mutableStateOf(100")):
+                  start, end = max(0, i-12), min(len(lines), i+90)
+                  print(f"--- {p}:{start+1}-{end} ---")
+                  for j in range(start, end):
+                      print(f"{j+1}: {lines[j]}")
+          print("--- ROUTE/DISTANCE REFERENCES ---")
+          for i, line in enumerate(lines):
+              if any(token in line.lower() for token in ("distance", "kilomet", "vzdialenos", "trasa", "route")):
+                  print(f"{i+1}: {line}")
+          PY
+
       - name: Apply OLI RouteSave launcher logo
         run: |
           python3 -m pip install --quiet pillow
