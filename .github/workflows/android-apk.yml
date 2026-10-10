@@ -128,26 +128,26 @@ jobs:
               raise SystemExit("Settings destination insertion point not found.")
           s = s.replace(anchor, '                    when (selectedTab) {\n                        "Settings" -> BasicSettingsScreen(onBack = { selectedTab = AppTab.More.name })\n                        "Vehicle" -> VehicleProfileScreen(', 1)
           s = s.rstrip() + '''
-
-@Composable
-private fun BasicSettingsScreen(onBack: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        OutlinedButton(onClick = onBack) {
-            Icon(Icons.Filled.ArrowBack, contentDescription = null)
-            Text("Späť")
-        }
-        Text("Nastavenia", style = MaterialTheme.typography.headlineMedium)
-        Text("OLI RouteSave", style = MaterialTheme.typography.titleMedium)
-        Text("Save money. Travel smarter.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Hlasového asistenta a jeho jazyk upravíš v časti Viac → Asistent.")
-        Text("Pred telefonátom, odoslaním SMS alebo zdieľaním polohy musí aplikácia vždy vyžiadať tvoje jasné potvrdenie.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-'''
-          compose.write_text(s)
+          
+          @Composable
+          private fun BasicSettingsScreen(onBack: () -> Unit) {
+              Column(
+                  modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                  verticalArrangement = Arrangement.spacedBy(16.dp)
+              ) {
+                  OutlinedButton(onClick = onBack) {
+                      Icon(Icons.Filled.ArrowBack, contentDescription = null)
+                      Text("Späť")
+                  }
+                  Text("Nastavenia", style = MaterialTheme.typography.headlineMedium)
+                  Text("OLI RouteSave", style = MaterialTheme.typography.titleMedium)
+                  Text("Save money. Travel smarter.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                  Text("Hlasového asistenta a jeho jazyk upravíš v časti Viac → Asistent.")
+                  Text("Pred telefonátom, odoslaním SMS alebo zdieľaním polohy musí aplikácia vždy vyžiadať tvoje jasné potvrdenie.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+          }
+          '''
+                    compose.write_text(s)
           print("Applied compatibility fixes, repaired Vehicle navigation and added a Settings screen.")
           PY
 
