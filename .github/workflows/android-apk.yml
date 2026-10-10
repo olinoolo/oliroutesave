@@ -165,7 +165,7 @@ jobs:
               # The legacy fixture passed an Int to a Double consumption field.
               # Convert integer literals only when used as named consumption values.
               import re
-              s2 = re.sub(r'(consumption(?:LitersPer100Km)?\\s*=\\s*)(\\d+)(?![.\\d])', r'\\1\\2.0', s)
+              s2 = re.sub(r'(consumption(?:LitersPer100Km)?\s*=\s*)(\d+)(?![.\d])', r'\1\2.0', s)
               if s2 != s:
                   p.write_text(s2)
                   print("Corrected integer consumption fixture to Double.")
