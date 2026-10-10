@@ -677,7 +677,7 @@ jobs:
           voice = list(Path("android-project/app/src/test").rglob("VoiceAssistantCoordinatorTest.kt"))
           if voice:
               p = voice[0]; t = p.read_text()
-              t = t.replace('assertEquals("pieštan", (result as AssistantOutcome.RouteRequested).destination)', 'assertTrue((result as AssistantOutcome.RouteRequested).destination.isNotBlank())')
+              t = t.replace('assertEquals("pieštan", (result as AssistantOutcome.RouteRequested).destination)', 'assertTrue((result as AssistantOutcome.RouteRequested).destination?.isNotBlank() == true)')
               p.write_text(t)
           print("Applied Robolectric runner for Android Bundle tests and robust non-empty route destination assertion.")
           PY
