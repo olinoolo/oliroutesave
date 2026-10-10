@@ -480,7 +480,7 @@ jobs:
               source = source.replace(package_marker, package_marker + "\\nimport androidx.compose.foundation.Image\\n", 1)
           if "import androidx.compose.ui.res.painterResource" not in source:
               source = source.replace(package_marker, package_marker + "import androidx.compose.ui.res.painterResource\\n", 1)
-          pattern = re.compile(r'Surface\\(shape = CircleShape, color = MaterialTheme\\.colorScheme\\.secondary, modifier = Modifier\\.size\\(46\\.dp\\)\\) \\{\\s*Box\\(contentAlignment = Alignment\\.Center\\) \\{\\s*Text\\("OLI", color = Color\\.White, fontWeight = FontWeight\\.Black, fontSize = 14\\.sp\\)\\s*\\}\\s*\\}', re.S)
+          pattern = re.compile(r'Surface\(shape = CircleShape, color = MaterialTheme\.colorScheme\.secondary, modifier = Modifier\.size\(46\.dp\)\) \{\s*Box\(contentAlignment = Alignment\.Center\) \{\s*Text\("OLI", color = Color\.White, fontWeight = FontWeight\.Black, fontSize = 14\.sp\)\s*\}\s*\}', re.S)
           new_logo = '''Image(
                   painter = painterResource(id = com.oli.routesave.R.drawable.oli_brand_logo),
                   contentDescription = "Oficiálne logo OLI RouteSave – Save money. Travel smarter.",
