@@ -215,41 +215,17 @@ jobs:
 
       - name: Give test build a separate app ID
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          p = Path("android-project/app/build.gradle.kts")
-          s = p.read_text()
-          m = re.search(r"\\bbuildTypes\\s*\\{", s)
-          if not m:
-              raise SystemExit("Could not find buildTypes block in app/build.gradle.kts")
-          start = m.end()
-          depth = 1
-          i = start
-          while i < len(s) and depth:
-              if s[i] == "{": depth += 1
-              elif s[i] == "}": depth -= 1
-              i += 1
-          if depth:
-              raise SystemExit("Unbalanced buildTypes block")
-          block = s[start:i-1]
-          dm = re.search(r"\\bdebug\\s*\\{", block)
-          if dm:
-              dstart = dm.end()
-              ddepth = 1
-              j = dstart
-              while j < len(block) and ddepth:
-                  if block[j] == "{": ddepth += 1
-                  elif block[j] == "}": ddepth -= 1
-                  j += 1
-              debug = block[dstart:j-1]
-              if "applicationIdSuffix" not in debug:
-                  block = block[:dstart] + '\\n            applicationIdSuffix = ".test"' + block[dstart:]
-          else:
-              block = '\\n        debug { applicationIdSuffix = ".test" }\\n' + block
-          p.write_text(s[:start] + block + s[i-1:])
-          print("Configured side-by-side test package ID suffix .test")
-          PY
+          cat >> android-project/app/build.gradle.kts <<'GRADLE'
+
+          // Installable side-by-side with the original app for safe testing.
+          android {
+              buildTypes {
+                  getByName("debug") {
+                      applicationIdSuffix = ".test"
+                  }
+              }
+          }
+          GRADLE
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
