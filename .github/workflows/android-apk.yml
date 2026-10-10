@@ -191,6 +191,148 @@ jobs:
                   print(f"{i+1}: {line}")
           PY
 
+
+      - name: Add first interactive map proof of concept
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          project = Path("android-project")
+          app_gradle = project / "app/build.gradle.kts"
+          gradle = app_gradle.read_text()
+          dependency = '    implementation("org.maplibre.gl:android-sdk-opengl:13.5.3")'
+          if dependency not in gradle:
+              marker = 'dependencies {'
+              if marker not in gradle:
+                  raise SystemExit("Could not find app dependencies block.")
+              gradle = gradle.replace(marker, marker + "\\n" + dependency, 1)
+              app_gradle.write_text(gradle)
+
+          manifest = project / "app/src/main/AndroidManifest.xml"
+          xml = manifest.read_text()
+          if 'android.permission.INTERNET' not in xml:
+              xml = xml.replace('<manifest xmlns:android="http://schemas.android.com/apk/res/android">', '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\\n    <uses-permission android:name="android.permission.INTERNET" />', 1)
+              manifest.write_text(xml)
+
+          package_dir = project / "app/src/main/java/com/oli/routesave/ui/compose"
+          package_dir.mkdir(parents=True, exist_ok=True)
+          (package_dir / "MapLibreMapView.kt").write_text(r'''package com.oli.routesave.ui.compose
+
+          import android.view.ViewGroup
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.remember
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleEventObserver
+          import androidx.lifecycle.compose.LocalLifecycleOwner
+          import org.maplibre.android.MapLibre
+          import org.maplibre.android.camera.CameraPosition
+          import org.maplibre.android.geometry.LatLng
+          import org.maplibre.android.maps.MapView
+          import org.maplibre.android.maps.Style
+
+          /**
+           * First map-rendering proof of concept only.
+           * The public demo style is for development; production must use licensed map data.
+           */
+          @Composable
+          fun MapLibreMapView(modifier: Modifier = Modifier) {
+              val context = LocalContext.current
+              val lifecycleOwner = LocalLifecycleOwner.current
+              val mapView = remember {
+                  MapLibre.getInstance(context)
+                  MapView(context).apply {
+                      layoutParams = ViewGroup.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                      )
+                      onCreate(null)
+                  }
+              }
+
+              DisposableEffect(lifecycleOwner, mapView) {
+                  val observer = LifecycleEventObserver { _, event ->
+                      when (event) {
+                          Lifecycle.Event.ON_START -> mapView.onStart()
+                          Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                          Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                          Lifecycle.Event.ON_STOP -> mapView.onStop()
+                          Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                          else -> Unit
+                      }
+                  }
+                  lifecycleOwner.lifecycle.addObserver(observer)
+                  if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mapView.onStart()
+                  if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
+                  onDispose {
+                      lifecycleOwner.lifecycle.removeObserver(observer)
+                      mapView.onPause()
+                      mapView.onStop()
+                      mapView.onDestroy()
+                  }
+              }
+
+              AndroidView(
+                  modifier = modifier,
+                  factory = { mapView },
+                  update = { view ->
+                      view.getMapAsync { map ->
+                          map.uiSettings.isCompassEnabled = true
+                          map.cameraPosition = CameraPosition.Builder()
+                              .target(LatLng(48.7, 19.7))
+                              .zoom(4.2)
+                              .build()
+                          map.setStyle(Style.Builder().fromUri("https://demotiles.maplibre.org/style.json"))
+                      }
+                  }
+              )
+          }
+          '''.replace('          ', ''))
+
+          compose = package_dir / "RouteSaveComposeApp.kt"
+          source = compose.read_text()
+          pattern = re.compile(r'private fun RouteScreen\(onStartNavigation: \(\) -> Unit\) \{.*?\n\}\n\n@Composable\nprivate fun DriveScreen', re.S)
+          replacement = '''private fun RouteScreen(onStartNavigation: () -> Unit) {
+              Column(
+                  Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                  verticalArrangement = Arrangement.spacedBy(14.dp)
+              ) {
+                  Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                  Text("Interaktívna mapa – testovacie mapové podklady", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                  MapLibreMapView(Modifier.fillMaxWidth().height(280.dp))
+                  Text(
+                      "Mapa je zatiaľ skúšobná. Vyhľadávanie adries, výpočet trasy a kamiónové obmedzenia ešte nie sú zapojené.",
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      fontSize = 13.sp
+                  )
+                  Button(
+                      onClick = onStartNavigation,
+                      modifier = Modifier.fillMaxWidth().height(56.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                  ) {
+                      Text("Spustiť navigáciu")
+                  }
+              }
+          }
+
+          @Composable
+          private fun DriveScreen'''
+          source, count = pattern.subn(lambda _: replacement, source, count=1)
+          if count != 1:
+              raise SystemExit("Could not safely replace RouteScreen; refusing to build.")
+          compose.write_text(source)
+          print("Added MapLibre map view and removed hard-coded route distance/time from the route planning screen.")
+          PY
+
       - name: Apply OLI RouteSave launcher logo
         run: |
           python3 -m pip install --quiet pillow
