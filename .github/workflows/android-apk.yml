@@ -55,6 +55,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           root = Path("android-project/app/src/main/java/com/oli/routesave")
 
           def replace(path, old, new, count=1):
