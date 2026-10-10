@@ -111,8 +111,20 @@ jobs:
               raise SystemExit("Calculator declaration not found; refusing an unsafe patch.")
           if "last_distance_km" not in calculator_source:
               calculator_source = calculator_source[:match.end()] + '\n    val routeContext = androidx.compose.ui.platform.LocalContext.current' + calculator_source[match.end():]
-          new_distance_state = '''val lastRouteKm = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getFloat("last_distance_km", 0f)
-          var distanceText by rememberSaveable(lastRouteKm) { mutableStateOf(if (lastRouteKm > 0f) String.format(java.util.Locale.getDefault(), "%.1f", lastRouteKm) else "") }'''
+          new_distance_state = '''var distanceText by rememberSaveable { mutableStateOf("") }
+          val routeLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+          androidx.compose.runtime.DisposableEffect(routeLifecycleOwner) {
+              fun refreshRouteDistance() {
+                  val savedKm = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getFloat("last_distance_km", 0f)
+                  if (savedKm > 0f) distanceText = String.format(java.util.Locale.getDefault(), "%.1f", savedKm)
+              }
+              val routeObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                  if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refreshRouteDistance()
+              }
+              routeLifecycleOwner.lifecycle.addObserver(routeObserver)
+              refreshRouteDistance()
+              onDispose { routeLifecycleOwner.lifecycle.removeObserver(routeObserver) }
+          }'''
           state_patterns = [
               'var distanceText by rememberSaveable { mutableStateOf("") }',
               'var distanceText by rememberSaveable { mutableStateOf("100") }',
@@ -123,7 +135,7 @@ jobs:
                   calculator_source = calculator_source.replace(state_pattern, new_distance_state, 1)
                   patched_state = True
                   break
-          if not patched_state and "last_distance_km" not in calculator_source:
+          if not patched_state and "routeLifecycleOwner" not in calculator_source:
               raise SystemExit("Calculator distance state has an unexpected form; refusing an unsafe patch.")
           calculator_file.write_text(calculator_source)
           print(f"Connected saved route distance to calculator source: {calculator_file}")
