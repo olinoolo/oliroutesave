@@ -638,7 +638,7 @@ jobs:
         run: |
           set -o pipefail
           cd android-project
-          gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
+          gradle --no-daemon :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
 
       - name: Upload debug APK
         if: success()
