@@ -499,7 +499,7 @@ jobs:
                   raise SystemExit("AndroidManifest.xml not found")
               manifest = matches[0]
 
-          icon_source = Path("icon-512.png")
+          icon_source = Path("9800.png")
           if not icon_source.exists():
               raise SystemExit("Brand icon icon-512.png is missing from repository root")
 
