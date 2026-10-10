@@ -126,6 +126,24 @@ jobs:
           print("Applied compatibility fixes, including the Vehicle navigation crash.")
           PY
 
+      - name: Inspect navigation and settings handlers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          lines = p.read_text().splitlines()
+          for start, end in ((175, 300), (1180, 1350), (1350, 1530)):
+              print(f"--- SOURCE LINES {start}-{min(end, len(lines))} ---")
+              for i in range(start-1, min(end, len(lines))):
+                  line = lines[i]
+                  if start == 175 or any(word in line.lower() for word in ("setting", "nastaven", "more", "selectedtab", "onclick", "navigation")):
+                      print(f"{i+1}: {line}")
+          print("--- ALL SETTINGS/SCREEN DECLARATIONS ---")
+          for i, line in enumerate(lines):
+              if any(word in line.lower() for word in ("settingsscreen", "nastavenia", "onsettings", "settings")):
+                  print(f"{i+1}: {line}")
+          PY
+
       - name: Apply OLI RouteSave launcher logo
         run: |
           python3 -m pip install --quiet pillow
