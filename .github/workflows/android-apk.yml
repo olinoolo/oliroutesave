@@ -107,6 +107,50 @@ jobs:
           print("Applied compatibility fixes, including the Vehicle navigation crash.")
           PY
 
+      - name: Apply OLI RouteSave launcher logo
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from PIL import Image
+
+          root = Path("android-project")
+          manifest = root / "app/src/main/AndroidManifest.xml"
+          if not manifest.exists():
+              matches = list(root.glob("**/src/main/AndroidManifest.xml"))
+              if not matches:
+                  raise SystemExit("AndroidManifest.xml not found")
+              manifest = matches[0]
+
+          icon_source = Path("icon-512.png")
+          if not icon_source.exists():
+              raise SystemExit("Brand icon icon-512.png is missing from repository root")
+
+          res = manifest.parent / "res"
+          image = Image.open(icon_source).convert("RGBA")
+          for folder, size in {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }.items():
+              target = res / folder / "oli_launcher.png"
+              target.parent.mkdir(parents=True, exist_ok=True)
+              image.resize((size, size), Image.Resampling.LANCZOS).save(target, optimize=True)
+
+          text = manifest.read_text()
+          if 'android:icon="' in text:
+              text = re.sub(r'android:icon="[^"]+"', 'android:icon="@mipmap/oli_launcher"', text, count=1)
+          else:
+              text = text.replace("<application", '<application android:icon="@mipmap/oli_launcher"', 1)
+          if 'android:roundIcon="' in text:
+              text = re.sub(r'android:roundIcon="[^"]+"', 'android:roundIcon="@mipmap/oli_launcher"', text, count=1)
+          manifest.write_text(text)
+          print("Applied OLI RouteSave branded launcher icon.")
+          PY
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
