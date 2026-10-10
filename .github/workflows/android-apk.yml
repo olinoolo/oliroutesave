@@ -700,7 +700,6 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           old = 'routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)'
-          new = old + '\n                                  androidx.compose.ui.platform.LocalContext.current'
           # Persist from the route screen using the current Android context; do not
           # show a fake/default distance when no route has been calculated.
           if old not in s:
