@@ -74,3 +74,19 @@ Prioritize European coverage and the previously agreed European languages. Plan 
 
 ## Implementation rule
 Build and test incrementally. Label unverified data honestly, prioritize correct routing and driver safety over decorative map features, and do not claim a feature is complete until it has been tested.
+
+## Next implementation step: map foundation
+
+The first implementation milestone is to render a real interactive map in the existing Android Compose app, then connect place search and route calculation as separate services.
+
+- **Map renderer candidate:** MapLibre Native Android. It is open source and does not itself require a Mapbox account/token, but it still needs a suitable map style and licensed tile/vector data source. The source and its usage terms must be reviewed before production use.
+- **Truck-routing candidate:** TomTom Routing API Orbis v3. Its documented route request supports truck mode and vehicle restriction parameters such as weight, axle weight/count, length, width, height and ADR-related settings. Full restriction data is not available everywhere, so the app must not present any result as guaranteed safe.
+- **Credentials:** a routing API key will be needed if TomTom is selected. Do not commit secrets to this repository or embed unrestricted credentials in the APK. Before integration, confirm the developer account, usage limits/pricing, key restrictions and whether a backend proxy is appropriate.
+- **Implementation order:** (1) add the map view to the existing screen, (2) show the user's location only after permission is granted, (3) add place search and selection, (4) request and draw a real route, (5) display provider-supplied road distance and ETA, (6) calculate fuel cost from the saved vehicle profile.
+- **Acceptance checks:** map loads without crashing; start/destination are actual selected places; distance/ETA come from a route response (never hard-coded); denied location permission does not crash the screen; API/network errors are shown honestly; truck restriction coverage and unknown restrictions are clearly disclosed.
+
+References:
+- MapLibre Android setup: https://github.com/maplibre/maplibre-native/blob/main/platform/android/docs/getting-started.md
+- TomTom Orbis Calculate Route: https://docs.tomtom.com/routing-api/documentation/tomtom-orbis-maps/v3/calculate-route
+
+This is a development plan, not a claim that map rendering or route calculation is already implemented.
