@@ -468,6 +468,11 @@ jobs:
           brand_target.parent.mkdir(parents=True, exist_ok=True)
           image.save(brand_target, optimize=True)
 
+          # Add the complete official logo as an in-app drawable.
+          brand_target = res / "drawable-nodpi" / "oli_brand_logo.png"
+          brand_target.parent.mkdir(parents=True, exist_ok=True)
+          image.save(brand_target, optimize=True)
+
           compose = root / "app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
           source = compose.read_text()
           package_marker = "package com.oli.routesave.ui.compose\\n"
@@ -475,19 +480,15 @@ jobs:
               source = source.replace(package_marker, package_marker + "\\nimport androidx.compose.foundation.Image\\n", 1)
           if "import androidx.compose.ui.res.painterResource" not in source:
               source = source.replace(package_marker, package_marker + "import androidx.compose.ui.res.painterResource\\n", 1)
-          old_logo = """            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(46.dp)) {
-                  Box(contentAlignment = Alignment.Center) {
-                      Text("OLI", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                  }
-              }"""
-          new_logo = """            Image(
+          pattern = re.compile(r'Surface\\(shape = CircleShape, color = MaterialTheme\\.colorScheme\\.secondary, modifier = Modifier\\.size\\(46\\.dp\\)\\) \\{\\s*Box\\(contentAlignment = Alignment\\.Center\\) \\{\\s*Text\\("OLI", color = Color\\.White, fontWeight = FontWeight\\.Black, fontSize = 14\\.sp\\)\\s*\\}\\s*\\}', re.S)
+          new_logo = '''Image(
                   painter = painterResource(id = com.oli.routesave.R.drawable.oli_brand_logo),
                   contentDescription = "Oficiálne logo OLI RouteSave – Save money. Travel smarter.",
                   modifier = Modifier.size(width = 112.dp, height = 76.dp)
-              )"""
-          if old_logo not in source:
-              raise SystemExit("Home screen orange OLI placeholder not found exactly; refusing to replace the logo unsafely.")
-          source = source.replace(old_logo, new_logo, 1)
+              )'''
+          source, logo_count = pattern.subn(lambda _: new_logo, source, count=1)
+          if logo_count != 1:
+              raise SystemExit("Could not locate the OLI placeholder logo safely; refusing to build with a false success.")
           compose.write_text(source)
           for folder, size in {
               "mipmap-mdpi": 48,
