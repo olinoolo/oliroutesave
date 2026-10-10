@@ -693,6 +693,40 @@ jobs:
                   print(p.read_text())
           PY
 
+      - name: Persist calculated route distance for the home screen
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          old = 'routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)'
+          new = old + '\n                                  androidx.compose.ui.platform.LocalContext.current'
+          # Persist from the route screen using the current Android context; do not
+          # show a fake/default distance when no route has been calculated.
+          if old not in s:
+              raise SystemExit("Route distance assignment not found; refusing to patch.")
+          s = s.replace(old, 'routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)\n                                  val appContext = androidx.compose.ui.platform.LocalContext.current\n                                  appContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()', 1)
+          home_marker = '        TripCostQuickCalculator(vehicle = savedVehicle, historyService = tripHistoryService)'
+          card = '''        val routePrefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE)
+        val lastRouteKm = routePrefs.getFloat("last_distance_km", -1f)
+        if (lastRouteKm > 0f) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Posledná vypočítaná trasa", fontWeight = FontWeight.Bold)
+                    Text(routePrefs.getString("last_start", "Štart") + " → " + routePrefs.getString("last_destination", "Cieľ"))
+                    Text(String.format(java.util.Locale.getDefault(), "%.1f km", lastRouteKm), color = MaterialTheme.colorScheme.secondary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("Vzdialenosť je uložená z výpočtu trasy. Skontroluj ju pred zadaním do kalkulačky.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+            }
+        }
+        TripCostQuickCalculator(vehicle = savedVehicle, historyService = tripHistoryService)'''
+          if home_marker not in s:
+              raise SystemExit("Home calculator insertion point not found; refusing to patch.")
+          s = s.replace(home_marker, card, 1)
+          p.write_text(s)
+          print("Persisted real route distance and displayed it on Home without inventing calculator integration.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
