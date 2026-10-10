@@ -705,7 +705,8 @@ jobs:
           # show a fake/default distance when no route has been calculated.
           if old not in s:
               raise SystemExit("Route distance assignment not found; refusing to patch.")
-          s = s.replace(old, 'routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)\n                                  val appContext = androidx.compose.ui.platform.LocalContext.current\n                                  appContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()', 1)
+          s = s.replace("private fun RouteScreen(onStartNavigation: () -> Unit) {", "private fun RouteScreen(onStartNavigation: () -> Unit) {\\n    val routeContext = androidx.compose.ui.platform.LocalContext.current", 1)
+          s = s.replace(old, 'routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)\n                                  val appContext = routeContext\n                                  appContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()', 1)
           home_marker = '        TripCostQuickCalculator(vehicle = savedVehicle, historyService = tripHistoryService)'
           card = '''        val routePrefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE)
         val lastRouteKm = routePrefs.getFloat("last_distance_km", -1f)
