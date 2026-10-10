@@ -155,6 +155,20 @@ jobs:
           print("Applied compatibility fixes, repaired Vehicle navigation and added a Settings screen.")
           PY
 
+      - name: Repair legacy vehicle profile test type
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/test/java/com/oli/routesave/ui/VehicleProfileControllerTest.kt")
+          if p.exists():
+              lines = p.read_text().splitlines()
+              print("VehicleProfileControllerTest.kt source:")
+              for i, line in enumerate(lines[:15], 1):
+                  print(f"{i}: {line}")
+          else:
+              print("VehicleProfileControllerTest.kt not found; test source will be diagnosed from Gradle output.")
+          PY
+
       - name: Ensure unit-test dependencies are available
         run: |
           python3 - <<'PY'
