@@ -161,12 +161,19 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/test/java/com/oli/routesave/ui/VehicleProfileControllerTest.kt")
           if p.exists():
-              lines = p.read_text().splitlines()
-              print("VehicleProfileControllerTest.kt source:")
-              for i, line in enumerate(lines[:15], 1):
-                  print(f"{i}: {line}")
+              s = p.read_text()
+              # The legacy fixture passed an Int to a Double consumption field.
+              # Convert integer literals only when used as named consumption values.
+              import re
+              s2 = re.sub(r'(consumption(?:LitersPer100Km)?\\s*=\\s*)(\\d+)(?![.\\d])', r'\\1\\2.0', s)
+              if s2 != s:
+                  p.write_text(s2)
+                  print("Corrected integer consumption fixture to Double.")
+              else:
+                  print("No named integer consumption literal found; leaving test source unchanged.")
+                  print("\\n".join(s.splitlines()[:15]))
           else:
-              print("VehicleProfileControllerTest.kt not found; test source will be diagnosed from Gradle output.")
+              print("VehicleProfileControllerTest.kt not found.")
           PY
 
       - name: Ensure unit-test dependencies are available
@@ -652,7 +659,7 @@ jobs:
         run: |
           set -o pipefail
           cd android-project
-          gradle --no-daemon :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
+          gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
 
       - name: Upload debug APK
         if: success()
