@@ -171,7 +171,7 @@ jobs:
           ]
           missing = [line for line in required if line not in s]
           if missing:
-              s = s.replace(marker, marker + "\\n" + "\\n".join(missing), 1)
+              s = s.replace(marker, marker + "\n" + "\n".join(missing), 1)
               p.write_text(s)
           print("Verified Kotlin/JUnit/coroutines test dependencies.")
           PY
