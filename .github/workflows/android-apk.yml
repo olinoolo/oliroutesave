@@ -80,6 +80,7 @@ jobs:
           s = compose.read_text()
           imports = [
               "import androidx.compose.runtime.DisposableEffect",
+              "import androidx.compose.foundation.layout.PaddingValues",
               "import androidx.compose.material3.LinearProgressIndicator",
               "import androidx.compose.material.icons.filled.RecordVoiceOver",
               "import androidx.compose.material.icons.filled.VerifiedUser",
