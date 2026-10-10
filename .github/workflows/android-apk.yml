@@ -86,7 +86,25 @@ jobs:
           p = root / "voice/assistant/VoiceAssistantSettingsController.kt"
           s = p.read_text().replace("AssistantProfileCatalog.all()", "AssistantProfileCatalog.all")
           p.write_text(s)
-          print("Applied compatibility fixes.")
+
+          # Fix the crash when tapping "Pridať vozidlo": selectedTab becomes
+          # "Vehicle", which is not a member of AppTab. valueOf() crashed before
+          # the VehicleProfileScreen could render.
+          compose = root / "ui/compose/RouteSaveComposeApp.kt"
+          s = compose.read_text()
+          old = "                when (AppTab.valueOf(selectedTab)) {"
+          if old not in s:
+              raise SystemExit("Expected navigation dispatch not found; refusing to build an unpatched app.")
+          s = s.replace(old, "                when (selectedTab) {", 1)
+          for tab in ("Home", "Route", "Drive", "Community", "More"):
+              s = s.replace(f"AppTab.{tab} ->", f"AppTab.{tab}.name ->", 1)
+          old_end = "                    )\n                }\n                // Lightweight destinations accessible from More."
+          new_end = "                    )\n                    else -> Unit // Subscreens such as Vehicle are rendered below.\n                }\n                // Lightweight destinations accessible from More."
+          if old_end not in s:
+              raise SystemExit("Expected end of navigation dispatch not found; refusing to build an unpatched app.")
+          s = s.replace(old_end, new_end, 1)
+          compose.write_text(s)
+          print("Applied compatibility fixes, including the Vehicle navigation crash.")
           PY
 
       - name: Set up Java 17
