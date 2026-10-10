@@ -146,8 +146,8 @@ jobs:
                   Text("Pred telefonátom, odoslaním SMS alebo zdieľaním polohy musí aplikácia vždy vyžiadať tvoje jasné potvrdenie.", color = MaterialTheme.colorScheme.onSurfaceVariant)
               }
           }
-          '''
-                    compose.write_text(s)
+                    '''
+          compose.write_text(s)
           print("Applied compatibility fixes, repaired Vehicle navigation and added a Settings screen.")
           PY
 
