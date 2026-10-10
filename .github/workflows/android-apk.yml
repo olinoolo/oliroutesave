@@ -95,6 +95,7 @@ jobs:
           s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
           s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
           # Locate the calculator wherever it is defined in the Android project.
+          project = Path("android-project")
           calculator_file = None
           calculator_source = None
           for candidate in project.glob("app/src/main/java/**/*.kt"):
