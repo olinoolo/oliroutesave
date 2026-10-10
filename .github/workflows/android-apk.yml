@@ -93,6 +93,19 @@ jobs:
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
           s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
           s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
+          # Use the last successfully calculated road distance as the calculator's starting value.
+          calculator_pattern = re.compile(r'(@Composable\s+private fun TripCostQuickCalculator\s*\([^)]*\)\s*\{)', re.S)
+          match = calculator_pattern.search(s)
+          if not match:
+              raise SystemExit("TripCostQuickCalculator function not found; refusing to fake route-to-cost integration.")
+          s = s[:match.end()] + '\n    val routeContext = androidx.compose.ui.platform.LocalContext.current' + s[match.end():]
+          old_distance_state = 'var distanceText by rememberSaveable { mutableStateOf("") }'
+          new_distance_state = '''val lastRouteKm = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getFloat("last_distance_km", 0f)
+          var distanceText by rememberSaveable(lastRouteKm) { mutableStateOf(if (lastRouteKm > 0f) String.format(java.util.Locale.getDefault(), "%.1f", lastRouteKm) else "") }'''
+          if old_distance_state not in s:
+              raise SystemExit("Expected empty calculator distance state not found; refusing to patch an unknown implementation.")
+          s = s.replace(old_distance_state, new_distance_state, 1)
+
           # Never prefill a fake 100 km distance: until a real route provider returns
           # road distance, require the user to enter a measured distance explicitly.
           s = s.replace('var distanceText by rememberSaveable { mutableStateOf("100") }', 'var distanceText by rememberSaveable { mutableStateOf("") }', 1)
@@ -354,6 +367,7 @@ jobs:
           if "import kotlinx.coroutines.withContext" not in source:
               source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.withContext\n", 1)
           replacement = '''private fun RouteScreen(onStartNavigation: () -> Unit) {
+              val routeContext = androidx.compose.ui.platform.LocalContext.current
               var startPlace by rememberSaveable { mutableStateOf("Myjava") }
               var destinationPlace by rememberSaveable { mutableStateOf("Piešťany") }
               var routeDistanceKm by rememberSaveable { mutableStateOf<String?>(null) }
@@ -437,6 +451,7 @@ jobs:
                                   val to = geocode(destinationPlace.trim())
                                   val km = calculateRoadDistance(from, to)
                                   routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)
+                                  routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()
                                   routeStatus = "Orientačná cestná vzdialenosť podľa verejnej mapovej služby."
                               } catch (e: Exception) {
                                   routeStatus = "Výpočet sa nepodaril: " + (e.message ?: "Skontroluj internet a názvy miest.")
