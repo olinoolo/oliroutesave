@@ -539,15 +539,24 @@ jobs:
                           )
                       }
                   }
-                  MapLibreMapView(Modifier.fillMaxWidth().weight(1f).height(180.dp))
+                  MapLibreMapView(Modifier.fillMaxWidth().height(160.dp))
                   Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                       MetricCard("Zostáva", "— km", Modifier.weight(1f))
                       MetricCard("Príchod", "—", Modifier.weight(1f))
                       MetricCard("Rýchlosť", "-- km/h", Modifier.weight(1f))
                   }
-                  OutlinedButton(onClick = onAssistantClick, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                  OutlinedButton(
+                      onClick = onAssistantClick,
+                      modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                      contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                  ) {
                       Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                      Text(if (assistantListening) "Hlasové ovládanie – ukážkový režim" else "Hlasový asistent: Niko (ukážkový režim)")
+                      Text(
+                          if (assistantListening) "Hlasové ovládanie – ukážkový režim" else "Hlasový asistent: Niko (ukážkový režim)",
+                          maxLines = 2,
+                          softWrap = true,
+                          textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                      )
                   }
                   Button(
                       onClick = onToggleDrive,
