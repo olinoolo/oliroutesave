@@ -306,7 +306,9 @@ jobs:
           # Add coroutine imports needed for network lookups without blocking the UI.
           package_marker = "package com.oli.routesave.ui.compose\n"
           if "import kotlinx.coroutines.launch" not in source:
-              source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.launch\nimport kotlinx.coroutines.withContext\n", 1)
+              source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.launch\n", 1)
+          if "import kotlinx.coroutines.withContext" not in source:
+              source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.withContext\n", 1)
           replacement = '''private fun RouteScreen(onStartNavigation: () -> Unit) {
               var startPlace by rememberSaveable { mutableStateOf("Myjava") }
               var destinationPlace by rememberSaveable { mutableStateOf("Piešťany") }
