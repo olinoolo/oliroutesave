@@ -201,7 +201,7 @@ jobs:
           project = Path("android-project")
           app_gradle = project / "app/build.gradle.kts"
           gradle = app_gradle.read_text()
-          dependency = '    implementation("org.maplibre.gl:android-sdk-opengl:13.5.3")'
+          dependency = '    implementation("org.maplibre.gl:android-sdk:11.5.2")'
           lifecycleComposeDependency = '    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")'
           if dependency not in gradle or lifecycleComposeDependency not in gradle:
               marker = 'dependencies {'
