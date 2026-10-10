@@ -655,6 +655,17 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Inspect failing unit test sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ["NotificationMessageExtractorTest.kt", "VoiceAssistantCoordinatorTest.kt"]:
+              matches = list(Path("android-project/app/src/test").rglob(name))
+              for p in matches:
+                  print(f"--- {p} ---")
+                  print(p.read_text())
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
