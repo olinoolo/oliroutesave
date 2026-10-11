@@ -112,18 +112,21 @@ jobs:
           if "last_distance_km" not in calculator_source:
               calculator_source = calculator_source[:match.end()] + '\n    val routeContext = androidx.compose.ui.platform.LocalContext.current' + calculator_source[match.end():]
           new_distance_state = '''var distanceText by rememberSaveable { mutableStateOf("") }
-          val routeLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-          androidx.compose.runtime.DisposableEffect(routeLifecycleOwner) {
+          val routePreferences = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE)
+          androidx.compose.runtime.DisposableEffect(routePreferences) {
               fun refreshRouteDistance() {
-                  val savedKm = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getFloat("last_distance_km", 0f)
-                  if (savedKm > 0f) distanceText = String.format(java.util.Locale.getDefault(), "%.1f", savedKm)
+                  val savedKm = routePreferences.getFloat("last_distance_km", 0f)
+                  if (savedKm > 0f) {
+                      val formattedKm = String.format(java.util.Locale.getDefault(), "%.1f", savedKm)
+                      if (distanceText != formattedKm) distanceText = formattedKm
+                  }
               }
-              val routeObserver = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                  if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refreshRouteDistance()
+              val routePreferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                  if (key == "last_distance_km") refreshRouteDistance()
               }
-              routeLifecycleOwner.lifecycle.addObserver(routeObserver)
+              routePreferences.registerOnSharedPreferenceChangeListener(routePreferenceListener)
               refreshRouteDistance()
-              onDispose { routeLifecycleOwner.lifecycle.removeObserver(routeObserver) }
+              onDispose { routePreferences.unregisterOnSharedPreferenceChangeListener(routePreferenceListener) }
           }'''
           state_patterns = [
               'var distanceText by rememberSaveable { mutableStateOf("") }',
