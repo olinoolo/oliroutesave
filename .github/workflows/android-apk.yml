@@ -220,9 +220,7 @@ jobs:
               }
               if (routeLookupMessage.isNotBlank()) {
                   Text(routeLookupMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-              }
-              OutlinedTextField(
-                  value = distanceText,'''
+              }'''
           if "Vypočítať kilometre" not in calculator_source:
               calculator_source = calculator_source[:calculator_ui_start] + calculator_ui + calculator_source[calculator_ui_start:]
           # Ensure imports and HomeScreen wiring are applied to the same source version
