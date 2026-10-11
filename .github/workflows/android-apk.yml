@@ -142,6 +142,13 @@ jobs:
               raise SystemExit("Calculator distance state has an unexpected form; refusing an unsafe patch.")
           calculator_file.write_text(calculator_source)
           print(f"Connected saved route distance to calculator source: {calculator_file}")
+          print("--- CALCULATOR FUNCTION SOURCE FOR TARGETED DISTANCE FIX ---")
+          calculator_lines = calculator_source.splitlines()
+          for i, line in enumerate(calculator_lines):
+              if "TripCostQuickCalculator" in line:
+                  for j in range(max(0, i-3), min(len(calculator_lines), i+180)):
+                      print(f"{j+1}: {calculator_lines[j]}")
+                  break
 
           # Never prefill a fake 100 km distance: until a real route provider returns
           # road distance, require the user to enter a measured distance explicitly.
