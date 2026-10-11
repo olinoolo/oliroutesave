@@ -905,6 +905,33 @@ jobs:
           print("Applied final Compose syntax, calculator return, HomeScreen wiring, and travel-mode compatibility fixes.")
           PY
 
+      - name: Correct remaining generated Kotlin errors
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          # Remove the temporary local enum; the project already defines the real travel enum.
+          s = re.sub(r'^private enum class TravelMode \\{ CAR, TRAIN, BUS, PLANE \\}\\n', '', s, flags=re.M)
+          package_line = "package com.oli.routesave.ui.compose\n"
+          travel_import = "import com.oli.routesave.travel.TravelMode"
+          if travel_import not in s:
+              s = s.replace(package_line, package_line + "\n" + travel_import + "\n", 1)
+          # The call site uses the enum's .name-based dispatch.
+          s = s.replace('''AppTab.Home.name -> HomeScreen(
+                          vehicleRepository = vehicleRepository,''','''AppTab.Home.name -> HomeScreen(
+                          vehicleRepository = vehicleRepository,
+                          tripHistoryService = tripHistoryService,''',1)
+          # Ensure the suspend distance lookup returns its Double from withContext.
+          s = s.replace('routes.getJSONObject(0).getDouble("distance") / 1000.0',
+                        'return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0')
+          # Repair a button insertion that was glued to the original distance field.
+          s = s.replace("}OutlinedTextField(", "}\\n            OutlinedTextField(")
+          p.write_text(s)
+          print("Corrected travel enum import, HomeScreen argument, road-distance return, and distance field boundary.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
