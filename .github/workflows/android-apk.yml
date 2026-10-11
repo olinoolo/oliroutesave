@@ -239,6 +239,9 @@ jobs:
           # road distance, require the user to enter a measured distance explicitly.
           s = s.replace('var distanceText by rememberSaveable { mutableStateOf("100") }', 'var distanceText by rememberSaveable { mutableStateOf("") }', 1)
           compose.write_text(s)
+          # Re-apply the calculator edits after the legacy `s` write above; otherwise
+          # the stale pre-patch source overwrites the new kilometre button and lookup.
+          calculator_file.write_text(calculator_source)
 
           # The notification-listener service is not needed for the current MVP
           # and can trigger Google Play Protect's sideloading block. Keep it out
