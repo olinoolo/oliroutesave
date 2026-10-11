@@ -1073,6 +1073,62 @@ jobs:
                   print(f"{i+1}: {line}")
           PY
 
+      - name: Add editable trip fuel price to cost calculator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          state_old = '    var overrideText by rememberSaveable { mutableStateOf("") }'
+          state_new = '    var overrideText by rememberSaveable { mutableStateOf("") }\n    var fuelPriceText by rememberSaveable(vehicle?.id) { mutableStateOf(vehicle?.fuelPricePerLiter?.toString() ?: "") }'
+          if state_old not in s:
+              raise SystemExit("Could not find calculator consumption state; refusing a risky patch.")
+          if "var fuelPriceText by rememberSaveable(vehicle?.id)" not in s:
+              s = s.replace(state_old, state_new, 1)
+          ui_old = '''            OutlinedTextField(
+                  value = overrideText,
+                  onValueChange = { overrideText = it; resultText = ""; lastSavedEstimate = null; saveMessage = "" },
+                  label = { Text("Spotreba pre túto cestu (l/100 km; prázdne = spotreba z profilu)") },
+                  modifier = Modifier.fillMaxWidth(),
+                  singleLine = true
+              )'''
+          ui_new = ui_old + '''
+              OutlinedTextField(
+                  value = fuelPriceText,
+                  onValueChange = { fuelPriceText = it; resultText = ""; lastSavedEstimate = null; saveMessage = "" },
+                  label = { Text("Cena paliva (€/l; predvolená z profilu vozidla)") },
+                  modifier = Modifier.fillMaxWidth(),
+                  singleLine = true
+              )'''
+          if ui_old not in s:
+              raise SystemExit("Could not find the exact consumption field UI; refusing a risky patch.")
+          if 'label = { Text("Cena paliva (€/l; predvolená z profilu vozidla)") }' not in s:
+              s = s.replace(ui_old, ui_new, 1)
+          parse_old = '''                        val override = overrideText.trim().takeIf { it.isNotEmpty() }?.replace(',', '.')?.toDoubleOrNull()
+                          val toll = tollText.trim().replace(',', '.').toDoubleOrNull()'''
+          parse_new = '''                        val override = overrideText.trim().takeIf { it.isNotEmpty() }?.replace(',', '.')?.toDoubleOrNull()
+                          val fuelPrice = fuelPriceText.trim().replace(',', '.').toDoubleOrNull()
+                          val toll = tollText.trim().replace(',', '.').toDoubleOrNull()'''
+          if parse_old not in s:
+              raise SystemExit("Could not find calculator input parsing block; refusing a risky patch.")
+          s = s.replace(parse_old, parse_new, 1)
+          valid_old = '''                        if (distance == null || toll == null || parking == null ||
+                              (overrideText.isNotBlank() && override == null)) {'''
+          valid_new = '''                        if (distance == null || fuelPrice == null || toll == null || parking == null ||
+                              fuelPrice <= 0.0 || (overrideText.isNotBlank() && override == null)) {'''
+          if valid_old not in s:
+              raise SystemExit("Could not find calculator validation block; refusing a risky patch.")
+          s = s.replace(valid_old, valid_new, 1)
+          # Use the editable per-trip fuel price both for calculation and for the saved history input.
+          calc_old = 'fuelPricePerLitre = currentVehicle.fuelPricePerLiter'
+          calc_new = 'fuelPricePerLitre = fuelPrice'
+          if s.count(calc_old) < 2:
+              raise SystemExit("Expected both calculation and history fuel-price references; refusing a risky patch.")
+          s = s.replace(calc_old, calc_new, 2)
+          p.write_text(s)
+          print("Added editable trip fuel price, positive-value validation, and wired it into estimate/history.")
+          PY
+
       - name: Restore original OSRM endpoint
         run: |
           python3 - <<'PY'
