@@ -980,6 +980,17 @@ jobs:
           print(f"Fixed explicit road-distance return in {count} location(s).")
           PY
 
+      - name: Print final Kotlin error context
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          lines = p.read_text().splitlines()
+          print(f"Final Kotlin source has {len(lines)} lines")
+          for i in range(425, min(455, len(lines))):
+              print(f"{i+1}: {lines[i]}")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
