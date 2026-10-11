@@ -1050,6 +1050,24 @@ jobs:
               print(f"{i+1}: {lines[i]}")
           PY
 
+      - name: Use alternate public road-routing endpoint
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          s = s.replace("https://router.project-osrm.org/route/v1/driving/", "https://routing.openstreetmap.de/routed-car/route/v1/driving/")
+          # Do not dump HTML error pages into the app; report HTTP status in Slovak.
+          s = s.replace('''                      val body = connection.inputStream.bufferedReader().use { it.readText() }
+                      val json = org.json.JSONObject(body)''','''                      val status = connection.responseCode
+                      val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                      val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                      if (status !in 200..299) throw IllegalStateException("Mapová služba odmietla požiadavku (HTTP $status). Skús to neskôr.")
+                      val json = org.json.JSONObject(body)''',1)
+          p.write_text(s)
+          print("Switched route planning to the alternate OpenStreetMap routing endpoint and made HTTP errors readable.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
