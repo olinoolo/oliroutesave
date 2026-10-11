@@ -89,6 +89,13 @@ jobs:
               "import androidx.compose.material.icons.filled.Stop",
               "import androidx.compose.material.icons.filled.VolumeOff",
               "import com.oli.routesave.travel.TravelMode",
+              "import androidx.compose.runtime.rememberCoroutineScope",
+              "import kotlinx.coroutines.Dispatchers",
+              "import kotlinx.coroutines.launch",
+              "import kotlinx.coroutines.withContext",
+              "import org.json.JSONObject",
+              "import java.net.URL",
+              "import java.net.URLEncoder",
           ]
           marker = "package com.oli.routesave.ui.compose\n"
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
@@ -140,8 +147,84 @@ jobs:
                   break
           if not patched_state and "routeLifecycleOwner" not in calculator_source:
               raise SystemExit("Calculator distance state has an unexpected form; refusing an unsafe patch.")
+          # Add a real road-distance lookup to the quick calculator. Geocode both
+          # locations with Nominatim, then use OSRM's driving route distance.
+          calculator_marker = '    var originText by rememberSaveable { mutableStateOf("") }'
+          calculator_add = """    val calculatorScope = rememberCoroutineScope()
+              var routeLookupLoading by rememberSaveable { mutableStateOf(false) }
+              var routeLookupMessage by rememberSaveable { mutableStateOf("") }
+              suspend fun findRoadDistanceKm(start: String, end: String): Double = withContext(Dispatchers.IO) {
+                  fun geocode(place: String): Pair<Double, Double> {
+                      val encoded = URLEncoder.encode(place, "UTF-8")
+                      val connection = URL("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=1").openConnection() as java.net.HttpURLConnection
+                      connection.connectTimeout = 10000
+                      connection.readTimeout = 12000
+                      connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (route distance lookup)")
+                      try {
+                          val body = connection.inputStream.bufferedReader().use { it.readText() }
+                          val results = org.json.JSONArray(body)
+                          if (results.length() == 0) throw IllegalArgumentException("Miesto sa nenašlo: $place")
+                          val item = results.getJSONObject(0)
+                          Pair(item.getString("lon").toDouble(), item.getString("lat").toDouble())
+                      } finally { connection.disconnect() }
+                  }
+                  val a = geocode(start)
+                  val b = geocode(end)
+                  val routeUrl = "https://router.project-osrm.org/route/v1/driving/" + a.first + "," + a.second + ";" + b.first + "," + b.second + "?overview=false"
+                  val connection = URL(routeUrl).openConnection() as java.net.HttpURLConnection
+                  connection.connectTimeout = 10000
+                  connection.readTimeout = 15000
+                  try {
+                      val body = connection.inputStream.bufferedReader().use { it.readText() }
+                      val root = JSONObject(body)
+                      if (root.optString("code") != "Ok") throw IllegalArgumentException("Cestu sa nepodarilo vypočítať.")
+                      val routes = root.getJSONArray("routes")
+                      if (routes.length() == 0) throw IllegalArgumentException("Pre tieto miesta sa nenašla cesta.")
+                      routes.getJSONObject(0).getDouble("distance") / 1000.0
+                  } finally { connection.disconnect() }
+              }
+          """
+          if calculator_marker not in calculator_source:
+              raise SystemExit("Could not locate calculator input section for road-distance lookup.")
+          if "findRoadDistanceKm" not in calculator_source:
+              calculator_source = calculator_source.replace(calculator_marker, calculator_add + calculator_marker, 1)
+          calculator_ui_anchor = '''            OutlinedTextField(
+                  value = distanceText,'''
+          calculator_ui = '''            Button(
+                  enabled = !routeLookupLoading && originText.isNotBlank() && destinationText.isNotBlank(),
+                  onClick = {
+                      calculatorScope.launch {
+                          routeLookupLoading = true
+                          routeLookupMessage = "Počítam cestnú vzdialenosť…"
+                          try {
+                              val km = findRoadDistanceKm(originText.trim(), destinationText.trim())
+                              distanceText = String.format(java.util.Locale.US, "%.1f", km)
+                              routeLookupMessage = "Vypočítaná cestná vzdialenosť: %.1f km".format(java.util.Locale.getDefault(), km)
+                              resultText = ""
+                              lastSavedEstimate = null
+                              saveMessage = ""
+                          } catch (e: Exception) {
+                              routeLookupMessage = "Vzdialenosť sa nepodarilo vypočítať. Skontroluj názvy miest a internet."
+                          } finally {
+                              routeLookupLoading = false
+                          }
+                      }
+                  },
+                  modifier = Modifier.fillMaxWidth()
+              ) {
+                  Text(if (routeLookupLoading) "Počítam trasu…" else "Vypočítať kilometre")
+              }
+              if (routeLookupMessage.isNotBlank()) {
+                  Text(routeLookupMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+              }
+              OutlinedTextField(
+                  value = distanceText,'''
+          if calculator_ui_anchor not in calculator_source:
+              raise SystemExit("Could not locate distance field to insert route button.")
+          if "Vypočítať kilometre" not in calculator_source:
+              calculator_source = calculator_source.replace(calculator_ui_anchor, calculator_ui, 1)
           calculator_file.write_text(calculator_source)
-          print(f"Connected saved route distance to calculator source: {calculator_file}")
+          print(f"Connected saved route distance and road lookup to calculator source: {calculator_file}")
           print("--- CALCULATOR FUNCTION SOURCE FOR TARGETED DISTANCE FIX ---")
           calculator_lines = calculator_source.splitlines()
           for i, line in enumerate(calculator_lines):
@@ -159,7 +242,12 @@ jobs:
           # and can trigger Google Play Protect's sideloading block. Keep it out
           # until its purpose, disclosure, and user-consent flow are reviewed.
           manifest = root.parents[3] / "AndroidManifest.xml"
-          manifest.write_text(manifest.read_text().replace(
+          manifest_text = manifest.read_text()
+          if "android.permission.INTERNET" not in manifest_text:
+              if 'xmlns:android=' not in manifest_text:
+                  manifest_text = manifest_text.replace("<manifest", '<manifest xmlns:android="http://schemas.android.com/apk/res/android"', 1)
+              manifest_text = manifest_text.replace("<application", '    <uses-permission android:name="android.permission.INTERNET" />\n    <application', 1)
+          manifest.write_text(manifest_text.replace(
               '    <service\n            android:name="com.oli.routesave.messaging.RouteSaveNotificationListenerService"\n            android:label="OLI RouteSave – správy"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n',
               ''
           ))
