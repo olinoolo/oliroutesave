@@ -1048,10 +1048,7 @@ jobs:
           apk="android-project/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$apk"
           tag="test-build-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" "$apk" \\
-            --repo "$GITHUB_REPOSITORY" \\
-            --title "OLI RouteSave test build ${GITHUB_RUN_NUMBER}" \\
-            --notes "Automated test APK. Install for testing only; not a production release."
+          gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --title "OLI RouteSave test build ${GITHUB_RUN_NUMBER}" --notes "Automated test APK. Install for testing only; not a production release."
 
       - name: Upload build diagnostics
         if: always()
