@@ -936,19 +936,32 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
-          s = p.read_text()
-          s = re.sub(r'^\\s*private enum class TravelMode\\s*\\{[^}]*\\}\\s*\\n', '', s, flags=re.M)
-          s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\\s*\\n', '', s, flags=re.M)
-          s = re.sub(r'^(package com\\.oli\\.routesave\\.ui\\.compose\\s*\\n)', r'\\1import com.oli.routesave.travel.TravelMode\\n', s, count=1, flags=re.M)
+          lines = p.read_text().splitlines()
+          # Remove the temporary enum and every TravelMode import, then restore the real enum import.
+          lines = [line for line in lines if not line.strip().startswith("private enum class TravelMode") and line.strip() != "import com.oli.routesave.travel.TravelMode"]
+          package_index = next(i for i, line in enumerate(lines) if line.startswith("package "))
+          lines.insert(package_index + 1, "import com.oli.routesave.travel.TravelMode")
+          # Fix the distance provider's return value.
+          s = "\n".join(lines) + "\n"
           s = s.replace('routes.getJSONObject(0).getDouble("distance") / 1000.0',
                         'return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0')
-          pattern = re.compile(r'(HomeScreen\\(\\s*\\n\\s*vehicleRepository\\s*=\\s*vehicleRepository,)(?!\\s*tripHistoryService)')
-          s, n = pattern.subn(r'\\1\\n                        tripHistoryService = tripHistoryService,', s, count=1)
-          s = s.replace("}OutlinedTextField(", "}\\n            OutlinedTextField(")
+          # Find the HomeScreen call that passes the vehicle repository and add history service if missing.
+          lines = s.splitlines()
+          for i, line in enumerate(lines):
+              if "HomeScreen(" in line and not line.strip().startswith("private fun"):
+                  end = min(len(lines), i + 15)
+                  block = lines[i:end]
+                  if any("vehicleRepository = vehicleRepository" in x for x in block) and not any("tripHistoryService =" in x for x in block):
+                      for j in range(i, end):
+                          if "vehicleRepository = vehicleRepository" in lines[j]:
+                              lines.insert(j + 1, lines[j][:len(lines[j])-len(lines[j].lstrip())] + "tripHistoryService = tripHistoryService,")
+                              break
+                      break
+          s = "\n".join(lines) + "\n"
+          s = s.replace("}OutlinedTextField(", "}\n            OutlinedTextField(")
           p.write_text(s)
-          print("Normalized imports and applied final distance/HomeScreen compile fixes.")
+          print("Normalized Kotlin imports, distance return, and HomeScreen argument wiring.")
           PY
 
       - name: Build debug APK and save build log
