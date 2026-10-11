@@ -1019,11 +1019,6 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          route_timeout = 'connection.readTimeout = 15000'
-          route_headers = 'connection.readTimeout = 15000\n                  connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android route distance)")\n                  connection.setRequestProperty("Accept", "application/json")'
-          if route_timeout not in s:
-              raise SystemExit("Could not find route connection timeout to add request headers.")
-          s = s.replace(route_timeout, route_headers, 1)
           old_geo = 'val body = connection.inputStream.bufferedReader().use { it.readText() }'
           new_geo = '''val status = connection.responseCode
                           val stream = if (status in 200..299) connection.inputStream else connection.errorStream
