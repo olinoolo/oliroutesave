@@ -1123,7 +1123,7 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           import re
-          state_match = re.search(r'(?m)^\\s*var calculating by rememberSaveable\\s*\\{\\s*mutableStateOf\\(false\\)\\s*\\}', s)
+          state_match = re.search(r'(?m)^\s*var calculating by rememberSaveable\s*\{\s*mutableStateOf\(false\)\s*\}', s)
           if not state_match:
               raise SystemExit("Route screen calculating state not found; refusing unsafe fuel-station patch.")
           if "var fuelStationsText by rememberSaveable" not in s:
@@ -1131,7 +1131,7 @@ jobs:
               indent = state_line[:len(state_line) - len(state_line.lstrip())]
               insertion = "\\n" + indent + 'var fuelStationsText by rememberSaveable { mutableStateOf("") }' + "\\n" + indent + 'var findingFuelStations by rememberSaveable { mutableStateOf(false) }'
               s = s[:state_match.end()] + insertion + s[state_match.end():]
-          ui_match = re.search(r'(?m)^\\s*Text\\(routeStatus,.*fontSize = 13\\.sp\\)', s)
+          ui_match = re.search(r'(?m)^\s*Text\(routeStatus,.*fontSize = 13\.sp\)', s)
           if not ui_match:
               raise SystemExit("Route status UI not found; refusing unsafe fuel-station patch.")
           ui_anchor = ui_match.group(0)
