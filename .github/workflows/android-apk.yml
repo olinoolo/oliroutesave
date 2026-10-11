@@ -1122,12 +1122,19 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          state_anchor = '              var calculating by rememberSaveable { mutableStateOf(false) }'
-          if state_anchor not in s:
-              raise SystemExit("Route screen state anchor missing; refusing unsafe fuel-station patch.")
+          import re
+          state_match = re.search(r'(?m)^\\s*var calculating by rememberSaveable\\s*\\{\\s*mutableStateOf\\(false\\)\\s*\\}', s)
+          if not state_match:
+              raise SystemExit("Route screen calculating state not found; refusing unsafe fuel-station patch.")
           if "var fuelStationsText by rememberSaveable" not in s:
-              s = s.replace(state_anchor, state_anchor + '\n              var fuelStationsText by rememberSaveable { mutableStateOf("") }\n              var findingFuelStations by rememberSaveable { mutableStateOf(false) }', 1)
-          ui_anchor = '              Text(routeStatus, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)'
+              state_line = state_match.group(0)
+              indent = state_line[:len(state_line) - len(state_line.lstrip())]
+              insertion = "\\n" + indent + 'var fuelStationsText by rememberSaveable { mutableStateOf("") }' + "\\n" + indent + 'var findingFuelStations by rememberSaveable { mutableStateOf(false) }'
+              s = s[:state_match.end()] + insertion + s[state_match.end():]
+          ui_match = re.search(r'(?m)^\\s*Text\\(routeStatus,.*fontSize = 13\\.sp\\)', s)
+          if not ui_match:
+              raise SystemExit("Route status UI not found; refusing unsafe fuel-station patch.")
+          ui_anchor = ui_match.group(0)
           ui = '''              Text(routeStatus, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
               Button(
                   enabled = !findingFuelStations && startPlace.isNotBlank(),
@@ -1179,10 +1186,8 @@ jobs:
                       Text(fuelStationsText, modifier = Modifier.padding(12.dp), fontSize = 14.sp)
                   }
               }'''
-          if ui_anchor not in s:
-              raise SystemExit("Route status UI anchor missing; refusing unsafe fuel-station patch.")
           if "Nájsť čerpacie stanice" not in s:
-              s = s.replace(ui_anchor, ui, 1)
+              s = s[:ui_match.start()] + ui + s[ui_match.end():]
           p.write_text(s)
           print("Added OpenStreetMap/Overpass nearby fuel-station search; prices are explicitly not fabricated.")
           PY
