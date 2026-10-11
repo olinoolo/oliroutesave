@@ -1116,6 +1116,77 @@ jobs:
           print("Inserted per-trip fuel price and connected it to calculation and history.")
           PY
 
+      - name: Add nearby fuel station search to route screen
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          state_anchor = '              var calculating by rememberSaveable { mutableStateOf(false) }'
+          if state_anchor not in s:
+              raise SystemExit("Route screen state anchor missing; refusing unsafe fuel-station patch.")
+          if "var fuelStationsText by rememberSaveable" not in s:
+              s = s.replace(state_anchor, state_anchor + '\n              var fuelStationsText by rememberSaveable { mutableStateOf("") }\n              var findingFuelStations by rememberSaveable { mutableStateOf(false) }', 1)
+          ui_anchor = '              Text(routeStatus, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)'
+          ui = '''              Text(routeStatus, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+              Button(
+                  enabled = !findingFuelStations && startPlace.isNotBlank(),
+                  onClick = {
+                      scope.launch {
+                          findingFuelStations = true
+                          fuelStationsText = "Vyhľadávam čerpacie stanice v okolí začiatku trasy…"
+                          try {
+                              val point = geocode(startPlace.trim())
+                              val query = "[out:json][timeout:20];(node(around:5000," + point.second + "," + point.first + ")[amenity=fuel];way(around:5000," + point.second + "," + point.first + ")[amenity=fuel];relation(around:5000," + point.second + "," + point.first + ")[amenity=fuel];);out center tags;"
+                              val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+                              val url = java.net.URL("https://overpass-api.de/api/interpreter?data=" + encodedQuery)
+                              val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+                                  requestMethod = "GET"
+                                  connectTimeout = 15000
+                                  readTimeout = 25000
+                                  setRequestProperty("User-Agent", "OLI-RouteSave-Android/0.1")
+                              }
+                              val body = try {
+                                  val status = connection.responseCode
+                                  val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                                  val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                                  if (status !in 200..299) throw java.io.IOException("Vyhľadávanie staníc HTTP " + status)
+                                  response
+                              } finally { connection.disconnect() }
+                              val elements = org.json.JSONObject(body).optJSONArray("elements") ?: org.json.JSONArray()
+                              val rows = mutableListOf<String>()
+                              for (i in 0 until elements.length()) {
+                                  val element = elements.optJSONObject(i) ?: continue
+                                  val tags = element.optJSONObject("tags") ?: org.json.JSONObject()
+                                  val name = tags.optString("name").takeIf { it.isNotBlank() } ?: tags.optString("brand").takeIf { it.isNotBlank() } ?: "Čerpacia stanica bez názvu"
+                                  val brand = tags.optString("brand").takeIf { it.isNotBlank() && it != name }
+                                  val fuel = listOf("diesel" to "nafta", "octane_95" to "benzín 95", "octane_98" to "benzín 98").mapNotNull { (key, label) -> if (tags.optString(key).equals("yes", true)) label else null }
+                                  rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
+                                  if (rows.size >= 12) break
+                              }
+                              fuelStationsText = if (rows.isEmpty()) "V okolí sa nenašli stanice v mapových údajoch." else "Čerpacie stanice do 5 km od začiatku trasy (mapové údaje; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
+                          } catch (e: Exception) {
+                              fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
+                          } finally {
+                              findingFuelStations = false
+                          }
+                      }
+                  },
+                  modifier = Modifier.fillMaxWidth()
+              ) { Text(if (findingFuelStations) "Hľadám stanice…" else "Nájsť čerpacie stanice") }
+              if (fuelStationsText.isNotBlank()) {
+                  Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                      Text(fuelStationsText, modifier = Modifier.padding(12.dp), fontSize = 14.sp)
+                  }
+              }'''
+          if ui_anchor not in s:
+              raise SystemExit("Route status UI anchor missing; refusing unsafe fuel-station patch.")
+          if "Nájsť čerpacie stanice" not in s:
+              s = s.replace(ui_anchor, ui, 1)
+          p.write_text(s)
+          print("Added OpenStreetMap/Overpass nearby fuel-station search; prices are explicitly not fabricated.")
+          PY
+
       - name: Restore original OSRM endpoint
         run: |
           python3 - <<'PY'
