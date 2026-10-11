@@ -1005,7 +1005,7 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           old = 'routeLookupMessage = "Vzdialenosť sa nepodarilo vypočítať. Skontroluj názvy miest a internet."'
-          new = 'routeLookupMessage = "Chyba výpočtu: ${e.javaClass.simpleName}: ${e.message ?: \'bez detailu\'}"'
+          new = 'routeLookupMessage = "Chyba výpočtu: " + e.javaClass.simpleName + ": " + (e.message ?: "bez detailu")'
           if old not in s:
               raise SystemExit("Could not find route lookup error handler; refusing to patch.")
           s = s.replace(old, new, 1)
