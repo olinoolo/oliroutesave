@@ -1059,7 +1059,7 @@ jobs:
           s = s.replace("https://routing.openstreetmap.de/routed-car/route/v1/driving/", "https://router.project-osrm.org/route/v1/driving/")
           # Add headers to the route request (not to geocoding) where the timeout is unique.
           route_timeout = "                  connection.readTimeout = 15000"
-          route_headers = route_timeout + '\\n                  connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0")\\n                  connection.setRequestProperty("Accept", "application/json")'
+          route_headers = route_timeout + '\n                  connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0")\n                  connection.setRequestProperty("Accept", "application/json")'
           if route_headers not in s:
               if route_timeout not in s:
                   raise SystemExit("Route connection timeout not found.")
