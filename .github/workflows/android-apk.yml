@@ -170,7 +170,7 @@ jobs:
                   }
                   val a = geocode(start)
                   val b = geocode(end)
-                  val routeUrl = "https://router.project-osrm.org/route/v1/driving/" + a.first + "," + a.second + ";" + b.first + "," + b.second + "?overview=false"
+                  val routeUrl = "https://routing.openstreetmap.de/routed-car/route/v1/driving/" + a.first + "," + a.second + ";" + b.first + "," + b.second + "?overview=false"
                   val connection = URL(routeUrl).openConnection() as java.net.HttpURLConnection
                   connection.connectTimeout = 10000
                   connection.readTimeout = 15000
