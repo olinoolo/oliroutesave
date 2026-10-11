@@ -998,6 +998,21 @@ jobs:
               raise SystemExit("Could not safely find geocode Pair return.")
           PY
 
+      - name: Show route lookup failure details in test build
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          old = 'routeLookupMessage = "Vzdialenosť sa nepodarilo vypočítať. Skontroluj názvy miest a internet."'
+          new = 'routeLookupMessage = "Chyba výpočtu: ${e.javaClass.simpleName}: ${e.message ?: \'bez detailu\'}"'
+          if old not in s:
+              raise SystemExit("Could not find route lookup error handler; refusing to patch.")
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          print("Test build will display the actual route lookup exception for diagnosis.")
+          PY
+
       - name: Print final Kotlin error context
         run: |
           python3 - <<'PY'
