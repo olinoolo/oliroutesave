@@ -932,6 +932,25 @@ jobs:
           print("Corrected travel enum import, HomeScreen argument, road-distance return, and distance field boundary.")
           PY
 
+      - name: Final Kotlin source normalization
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          s = re.sub(r'^\\s*private enum class TravelMode\\s*\\{[^}]*\\}\\s*\\n', '', s, flags=re.M)
+          s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\\s*\\n', '', s, flags=re.M)
+          s = re.sub(r'^(package com\\.oli\\.routesave\\.ui\\.compose\\s*\\n)', r'\\1import com.oli.routesave.travel.TravelMode\\n', s, count=1, flags=re.M)
+          s = s.replace('routes.getJSONObject(0).getDouble("distance") / 1000.0',
+                        'return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0')
+          pattern = re.compile(r'(HomeScreen\\(\\s*\\n\\s*vehicleRepository\\s*=\\s*vehicleRepository,)(?!\\s*tripHistoryService)')
+          s, n = pattern.subn(r'\\1\\n                        tripHistoryService = tripHistoryService,', s, count=1)
+          s = s.replace("}OutlinedTextField(", "}\\n            OutlinedTextField(")
+          p.write_text(s)
+          print("Normalized imports and applied final distance/HomeScreen compile fixes.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
