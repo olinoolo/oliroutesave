@@ -980,6 +980,24 @@ jobs:
           print(f"Fixed explicit road-distance return in {count} location(s).")
           PY
 
+      - name: Fix geocoder return value
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          old = '                Pair(item.getString("lon").toDouble(), item.getString("lat").toDouble())'
+          new = '                return Pair(item.getString("lon").toDouble(), item.getString("lat").toDouble())'
+          if old in s:
+              s = s.replace(old, new, 1)
+              p.write_text(s)
+              print("Fixed missing explicit return in geocode().")
+          elif new in s:
+              print("Geocoder return already fixed.")
+          else:
+              raise SystemExit("Could not safely find geocode Pair return.")
+          PY
+
       - name: Print final Kotlin error context
         run: |
           python3 - <<'PY'
