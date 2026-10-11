@@ -1062,13 +1062,13 @@ jobs:
           route_connection = '''                  val connection = URL(routeUrl).openConnection() as java.net.HttpURLConnection
                   connection.connectTimeout = 10000
                   connection.readTimeout = 15000
-                  try:'''
+                  try {'''
           route_connection_new = '''                  val connection = URL(routeUrl).openConnection() as java.net.HttpURLConnection
                   connection.connectTimeout = 10000
                   connection.readTimeout = 15000
                   connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0")
                   connection.setRequestProperty("Accept", "application/json")
-                  try:'''
+                  try {'''
           if route_connection in s:
               s = s.replace(route_connection, route_connection_new, 1)
           elif route_connection_new not in s:
