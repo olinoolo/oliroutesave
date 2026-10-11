@@ -225,6 +225,40 @@ jobs:
                   value = distanceText,'''
           if "Vypočítať kilometre" not in calculator_source:
               calculator_source = calculator_source[:calculator_ui_start] + calculator_ui + calculator_source[calculator_ui_start:]
+          # Ensure imports and HomeScreen wiring are applied to the same source version
+          # that receives the calculator edits.
+          required_imports = [
+              "import androidx.compose.runtime.DisposableEffect",
+              "import androidx.compose.foundation.layout.PaddingValues",
+              "import androidx.compose.material3.LinearProgressIndicator",
+              "import androidx.compose.material.icons.filled.RecordVoiceOver",
+              "import androidx.compose.material.icons.filled.VerifiedUser",
+              "import androidx.compose.material.icons.filled.Search",
+              "import androidx.compose.material.icons.filled.Stop",
+              "import androidx.compose.material.icons.filled.VolumeOff",
+              "import com.oli.routesave.travel.TravelMode",
+              "import androidx.compose.runtime.rememberCoroutineScope",
+              "import kotlinx.coroutines.Dispatchers",
+              "import kotlinx.coroutines.launch",
+              "import kotlinx.coroutines.withContext",
+              "import org.json.JSONObject",
+              "import java.net.URL",
+              "import java.net.URLEncoder",
+          ]
+          package_line = "package com.oli.routesave.ui.compose\\n"
+          for imp in required_imports:
+              if imp not in calculator_source:
+                  calculator_source = calculator_source.replace(package_line, package_line + imp + "\\n", 1)
+          calculator_source = calculator_source.replace(
+              "private fun HomeScreen(\\n    vehicleRepository: VehicleRepository,",
+              "private fun HomeScreen(\\n    vehicleRepository: VehicleRepository,\\n    tripHistoryService: TripHistoryService,", 1
+          )
+          # The button string already contains the next field's opening; do not duplicate it.
+          calculator_source = calculator_source.replace(
+              'Text(routeLookupMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)\\n              }\\n              OutlinedTextField(\\n                  value = distanceText,',
+              'Text(routeLookupMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)\\n              }',
+              1
+          )
           calculator_file.write_text(calculator_source)
           print(f"Connected saved route distance and road lookup to calculator source: {calculator_file}")
           print("--- CALCULATOR FUNCTION SOURCE FOR TARGETED DISTANCE FIX ---")
