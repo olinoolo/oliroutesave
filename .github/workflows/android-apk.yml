@@ -877,6 +877,34 @@ jobs:
                   print(p.read_text())
           PY
 
+      - name: Repair generated Compose source before compilation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          # Keep the existing distance field, but separate it from the inserted button block.
+          s = s.replace("}OutlinedTextField(", "}\n            OutlinedTextField(")
+          # The calculator function returns a Double; explicitly return the OSRM distance.
+          s = s.replace('''                      routes.getJSONObject(0).getDouble("distance") / 1000.0
+                  } finally { connection.disconnect() }
+              }''','''                      return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0
+                  } finally { connection.disconnect() }
+              }''',1)
+          # HomeScreen now needs the history service passed at its call site.
+          s = s.replace('''AppTab.Home -> HomeScreen(
+                          vehicleRepository = vehicleRepository,''','''AppTab.Home -> HomeScreen(
+                          vehicleRepository = vehicleRepository,
+                          tripHistoryService = tripHistoryService,''',1)
+          # The comparison UI references a four-mode enum; keep it local to this Compose file.
+          s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\\n', '', s, flags=re.M)
+          if "private enum class TravelMode" not in s:
+              s = s.replace("package com.oli.routesave.ui.compose\n", "package com.oli.routesave.ui.compose\n\nprivate enum class TravelMode { CAR, TRAIN, BUS, PLANE }\n", 1)
+          p.write_text(s)
+          print("Applied final Compose syntax, calculator return, HomeScreen wiring, and travel-mode compatibility fixes.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
