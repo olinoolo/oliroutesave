@@ -1058,10 +1058,19 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           lines = p.read_text().splitlines()
-          for start, end in ((540, 640), (870, 990)):
-              print(f"--- CALCULATOR SOURCE {start}-{min(end, len(lines))} ---")
-              for i in range(start-1, min(end, len(lines))):
-                  print(f"{i+1}: {lines[i]}")
+          # Print the complete quick-calculator block and all cost inputs/results,
+          # based on function boundaries rather than fragile fixed line numbers.
+          start = next((i for i, line in enumerate(lines) if "fun TripCostQuickCalculator(" in line), None)
+          if start is None:
+              raise SystemExit("TripCostQuickCalculator declaration not found")
+          end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("@Composable") and i > start), min(len(lines), start + 300))
+          print(f"--- COMPLETE QUICK CALCULATOR SOURCE {start+1}-{end} ---")
+          for i in range(start, end):
+              print(f"{i+1}: {lines[i]}")
+          print("--- COST ENGINE REFERENCES ---")
+          for i, line in enumerate(lines):
+              if any(key in line.lower() for key in ("fuelprice", "fuel price", "totalcost", "fuelcost", "consumption", "litres", "liters", "resulttext")):
+                  print(f"{i+1}: {line}")
           PY
 
       - name: Restore original OSRM endpoint
