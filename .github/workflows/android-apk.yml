@@ -1056,16 +1056,16 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          s = s.replace("https://routing.openstreetmap.de/routed-car/route/v1/driving/", "https://router.project-osrm.org/route/v1/driving/")
-          # Add headers to the route request (not to geocoding) where the timeout is unique.
-          route_timeout = "                  connection.readTimeout = 15000"
-          route_headers = route_timeout + '\n                  connection.setRequestProperty("User-Agent", "OLI-RouteSave/1.0")\n                  connection.setRequestProperty("Accept", "application/json")'
-          if route_headers not in s:
-              if route_timeout not in s:
-                  raise SystemExit("Route connection timeout not found.")
-              s = s.replace(route_timeout, route_headers, 1)
-          p.write_text(s)
-          print("Restored the original OSRM route endpoint.")
+          old = "https://routing.openstreetmap.de/routed-car/route/v1/driving/"
+          new = "https://router.project-osrm.org/route/v1/driving/"
+          if old in s:
+              s = s.replace(old, new, 1)
+              p.write_text(s)
+              print("Restored the original OSRM route endpoint.")
+          elif new in s:
+              print("Original OSRM route endpoint is already active.")
+          else:
+              raise SystemExit("Neither expected route endpoint was found.")
           PY
 
       - name: Build debug APK and save build log
