@@ -964,6 +964,22 @@ jobs:
           print("Normalized Kotlin imports, distance return, and HomeScreen argument wiring.")
           PY
 
+      - name: Finalize road-distance return values
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          target = 'routes.getJSONObject(0).getDouble("distance") / 1000.0'
+          replacement = 'return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0'
+          count = s.count(target)
+          if count == 0:
+              raise SystemExit("Could not locate OSRM distance result; refusing to build without explicit return.")
+          s = s.replace(target, replacement)
+          p.write_text(s)
+          print(f"Fixed explicit road-distance return in {count} location(s).")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
