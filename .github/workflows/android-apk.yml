@@ -8,7 +8,7 @@ on:
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -1024,6 +1024,19 @@ jobs:
           path: android-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish APK as a downloadable GitHub release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk="android-project/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          tag="test-build-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "$apk" \\
+            --repo "$GITHUB_REPOSITORY" \\
+            --title "OLI RouteSave test build ${GITHUB_RUN_NUMBER}" \\
+            --notes "Automated test APK. Install for testing only; not a production release."
 
       - name: Upload build diagnostics
         if: always()
