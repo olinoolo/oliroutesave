@@ -188,8 +188,12 @@ jobs:
               raise SystemExit("Could not locate calculator input section for road-distance lookup.")
           if "findRoadDistanceKm" not in calculator_source:
               calculator_source = calculator_source.replace(calculator_marker, calculator_add + calculator_marker, 1)
-          calculator_ui_anchor = '''            OutlinedTextField(
-                  value = distanceText,'''
+          distance_field_pos = calculator_source.find("value = distanceText,")
+          if distance_field_pos < 0:
+              raise SystemExit("Could not locate distance field to insert route button.")
+          calculator_ui_start = calculator_source.rfind("OutlinedTextField(", 0, distance_field_pos)
+          if calculator_ui_start < 0:
+              raise SystemExit("Could not locate distance field declaration.")
           calculator_ui = '''            Button(
                   enabled = !routeLookupLoading && originText.isNotBlank() && destinationText.isNotBlank(),
                   onClick = {
@@ -219,10 +223,8 @@ jobs:
               }
               OutlinedTextField(
                   value = distanceText,'''
-          if calculator_ui_anchor not in calculator_source:
-              raise SystemExit("Could not locate distance field to insert route button.")
           if "Vypočítať kilometre" not in calculator_source:
-              calculator_source = calculator_source.replace(calculator_ui_anchor, calculator_ui, 1)
+              calculator_source = calculator_source[:calculator_ui_start] + calculator_ui + calculator_source[calculator_ui_start:]
           calculator_file.write_text(calculator_source)
           print(f"Connected saved route distance and road lookup to calculator source: {calculator_file}")
           print("--- CALCULATOR FUNCTION SOURCE FOR TARGETED DISTANCE FIX ---")
