@@ -1052,6 +1052,18 @@ jobs:
               print(f"{i+1}: {lines[i]}")
           PY
 
+      - name: Inspect trip calculator calculation and result UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          lines = p.read_text().splitlines()
+          for start, end in ((540, 640), (870, 990)):
+              print(f"--- CALCULATOR SOURCE {start}-{min(end, len(lines))} ---")
+              for i in range(start-1, min(end, len(lines))):
+                  print(f"{i+1}: {lines[i]}")
+          PY
+
       - name: Restore original OSRM endpoint
         run: |
           python3 - <<'PY'
