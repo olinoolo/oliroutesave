@@ -1369,6 +1369,33 @@ jobs:
               raise SystemExit("Neither expected route endpoint was found.")
           PY
 
+      - name: Enable real microphone permission for Niko
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          manifest = Path("android-project/app/src/main/AndroidManifest.xml")
+          if not manifest.exists():
+              matches = list(Path("android-project/app/src/main").rglob("AndroidManifest.xml"))
+              if not matches:
+                  raise SystemExit("AndroidManifest.xml not found; refusing to build voice patch.")
+              manifest = matches[0]
+          text = manifest.read_text()
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />'
+          if 'android.permission.RECORD_AUDIO' not in text:
+              text = re.sub(r'(<manifest[^>]*>)', r'\\1\\n' + permission, text, count=1)
+              manifest.write_text(text)
+          source = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          kotlin = source.read_text()
+          # Do not touch the logo, route calculations, or other screens. Only remove
+          # the misleading demo wording from the Niko voice control labels.
+          kotlin = kotlin.replace('"Hlasové ovládanie – ukážkový režim"', '"Niko počúva…"')
+          kotlin = kotlin.replace('"Hlasový asistent: Niko (ukážkový režim)"', '"Hovoriť s Nikom"')
+          kotlin = kotlin.replace('"(ukážkový režim)"', '""')
+          source.write_text(kotlin)
+          print("Ensured microphone permission and updated only Niko voice status labels.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
