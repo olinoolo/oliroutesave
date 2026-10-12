@@ -1375,6 +1375,7 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
+          package_line = "package com.oli.routesave.ui.compose"
           imports = [
               "import android.app.Activity",
               "import android.content.Intent",
@@ -1384,28 +1385,26 @@ jobs:
               "import androidx.activity.compose.rememberLauncherForActivityResult",
               "import androidx.activity.result.contract.ActivityResultContracts",
           ]
-          marker = "package com.oli.routesave.ui.compose\\n"
-          missing = [line for line in imports if line not in s]
-          if missing:
-              s = s.replace(marker, marker + "\\n" + "\\n".join(missing) + "\\n", 1)
-          composable = "fun RouteSaveComposeApp()"
-          pos = s.find(composable)
-          if pos < 0:
-              raise SystemExit("RouteSaveComposeApp declaration missing.")
-          launcher = "val nikoSpeechLauncherForHome = rememberLauncherForActivityResult"
-          if launcher not in s:
-              anchor = "    val context = LocalContext.current"
-              at = s.find(anchor, pos)
+          for line in imports:
+              if line not in s:
+                  s = s.replace(package_line, package_line + "\\n" + line, 1)
+          anchor = "    val context = LocalContext.current"
+          if "val nikoSpeechLauncherForHome = rememberLauncherForActivityResult" not in s:
+              at = s.find(anchor, s.find("fun RouteSaveComposeApp()"))
               if at < 0:
                   raise SystemExit("Could not locate context in RouteSaveComposeApp.")
-              setup = """ 
-              val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+              setup = '''
+              val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(
+                  ActivityResultContracts.StartActivityForResult()
+              ) { result ->
                   val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
                       Toast.makeText(context, "Niko počul: $phrase", Toast.LENGTH_LONG).show()
-                      val speaker = TextToSpeech(context) { status ->
+                      val speakerRef = arrayOfNulls<TextToSpeech>(1)
+                      speakerRef[0] = TextToSpeech(context) { status ->
                           if (status == TextToSpeech.SUCCESS) {
-                              speakerLanguageFallback()
+                              speakerRef[0]?.setLanguage(java.util.Locale("sk", "SK"))
+                              speakerRef[0]?.speak("Počul som: $phrase", TextToSpeech.QUEUE_FLUSH, null, "niko-response")
                           }
                       }
                   } else {
@@ -1413,12 +1412,11 @@ jobs:
                   }
                   assistantListening = false
               }
-              """
-              setup = setup.replace("                              speakerLanguageFallback()", '                              speaker.setLanguage(java.util.Locale("sk", "SK"))\\n                              speaker.speak("Počul som: $phrase", TextToSpeech.QUEUE_FLUSH, null, "niko-response")')
+'''
               s = s[:at + len(anchor)] + "\\n" + setup + s[at + len(anchor):]
           old = "onAssistantClick = { assistantListening = !assistantListening }"
           if old in s:
-              handler = """onAssistantClick = {
+              handler = '''onAssistantClick = {
                               val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                   putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                   putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
@@ -1432,7 +1430,7 @@ jobs:
                                   assistantListening = false
                                   Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
                               }
-                          }"""
+                          }'''
               s = s.replace(old, handler, 1)
           if "nikoSpeechLauncherForHome.launch(intent)" not in s:
               raise SystemExit("Could not wire Niko button to speech recognition.")
