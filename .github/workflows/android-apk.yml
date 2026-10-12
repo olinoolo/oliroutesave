@@ -116,9 +116,11 @@ jobs:
           voice_setup = r"""
               val nikoTtsReady = remember { mutableStateOf(false) }
               val nikoPendingSpeech = remember { mutableStateOf("") }
+              val nikoTtsStatus = remember { mutableStateOf("Pripravujem hlas…") }
               val nikoTtsEngine = remember(context) {
-                  TextToSpeech(context) { status ->
+                  TextToSpeech(context.applicationContext) { status ->
                       nikoTtsReady.value = status == TextToSpeech.SUCCESS
+                      nikoTtsStatus.value = if (status == TextToSpeech.SUCCESS) "Hlas pripravený" else "Hlasová služba nie je dostupná"
                   }
               }
               DisposableEffect(nikoTtsEngine) {
@@ -130,11 +132,19 @@ jobs:
               LaunchedEffect(nikoTtsReady.value, nikoPendingSpeech.value) {
                   val pending = nikoPendingSpeech.value
                   if (nikoTtsReady.value && pending.isNotBlank()) {
-                      val languageResult = nikoTtsEngine.setLanguage(java.util.Locale("sk", "SK"))
-                      if (languageResult >= TextToSpeech.LANG_AVAILABLE) {
+                      val slovakLocale = java.util.Locale("sk", "SK")
+                      val languageResult = nikoTtsEngine.setLanguage(slovakLocale)
+                      if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                          nikoTtsStatus.value = "Chýba slovenský hlas v telefóne"
+                          Toast.makeText(context, "V telefóne chýba slovenský hlas. Otvor nastavenia Text-to-Speech a nainštaluj slovenské hlasové údaje.", Toast.LENGTH_LONG).show()
+                      } else {
                           nikoTtsEngine.setSpeechRate(0.92f)
                           nikoTtsEngine.setPitch(0.82f)
-                          nikoTtsEngine.speak(pending, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
+                          val result = nikoTtsEngine.speak(pending, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
+                          nikoTtsStatus.value = if (result == TextToSpeech.SUCCESS) "Niko hovorí…" else "Hlas sa nepodarilo spustiť"
+                          if (result != TextToSpeech.SUCCESS) {
+                              Toast.makeText(context, "Niko nemôže spustiť hlas. Skontroluj hlasový výstup v nastaveniach telefónu.", Toast.LENGTH_LONG).show()
+                          }
                       }
                       nikoPendingSpeech.value = ""
                   }
