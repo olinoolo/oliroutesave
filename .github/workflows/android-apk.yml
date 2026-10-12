@@ -163,10 +163,26 @@ jobs:
                               "Pri planovani trasy zadaj miesto odchodu a ciel. Vzdialenost sa ma pocitat podla cestnej trasy."
                           listOf("vozidlo", "auto", "kamion").any { normalized.contains(it) } ->
                               "Udaje o vozidle a jeho spotrebe najdes v profile vozidla."
+                          listOf("ahoj", "cau", "dobry den", "dobre rano", "dobry vecer").any { normalized.contains(it) } ->
+                              "Ahoj! Mam sa dobre, dakujem. Co by si dnes potreboval?"
+                          listOf("ako sa mas", "mas sa", "ako sa ti dari").any { normalized.contains(it) } ->
+                              "Mam sa dobre, dakujem, ze sa pytas. A ako sa mas ty?"
                           listOf("dakujem", "vdaka").any { normalized.contains(it) } ->
                               "Rado sa stalo. Som tu, ked ma budes potrebovat."
+                          normalized.matches(Regex(".*\\bkolko je\\b.*")) && Regex("\\d+").findAll(normalized).count() >= 2 ->
+                              run {
+                                  val numbers = Regex("\\d+").findAll(normalized).map { it.value.toLongOrNull() }.filterNotNull().take(2).toList()
+                                  when {
+                                      numbers.size < 2 -> "Povedz mi, prosim, priklad este raz."
+                                      normalized.contains("delen") || normalized.contains("delit") -> if (numbers[1] == 0L) "Nulou sa delit neda." else "Vysledok je ${numbers[0].toDouble() / numbers[1].toDouble()}."
+                                      normalized.contains("krat") || normalized.contains("nasob") -> "Vysledok je ${numbers[0] * numbers[1]}."
+                                      normalized.contains("plus") || normalized.contains("scitaj") || normalized.contains("spocitaj") -> "Vysledok je ${numbers[0] + numbers[1]}."
+                                      normalized.contains("minus") || normalized.contains("odcitaj") -> "Vysledok je ${numbers[0] - numbers[1]}."
+                                      else -> "Rozumiem. Ak chces vypocitat priklad, povedz napríklad: kolko je 150 deleno 3."
+                                  }
+                              }
                           else ->
-                              "Rozumiem, povedal si: $phrase. Zatial viem pomoct s trasou, spotrebou paliva a udajmi o vozidle. Skus povedat pomoc."
+                              "Prepáč, tejto otázke zatiaľ nerozumiem. Skús sa ma opýtať na trasu, spotrebu paliva alebo vozidlo, prípadne povedz pomoc."
                       }
                       nikoPendingSpeech.value = answer
                       Toast.makeText(context, answer, Toast.LENGTH_LONG).show()
