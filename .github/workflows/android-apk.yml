@@ -1359,6 +1359,22 @@ jobs:
               raise SystemExit("Neither expected route endpoint was found.")
           PY
 
+      - name: Wire Niko voice button to speech recognition
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          old = "onAssistantClick = { assistantListening = !assistantListening }"
+          count = s.count(old)
+          if count == 0 and "onAssistantClick = { startNikoSpeech() }" not in s:
+              raise SystemExit("Could not find Niko voice button handler; refusing to build a non-functional button.")
+          s = s.replace(old, "onAssistantClick = { startNikoSpeech() }")
+          s = s.replace("Počúvam… (ukážkový režim)", "Spúšťam rozpoznávanie reči…")
+          p.write_text(s)
+          print(f"Connected {count} Niko voice button handler(s) to Android speech recognition.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
