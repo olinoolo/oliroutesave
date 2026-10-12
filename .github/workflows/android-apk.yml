@@ -1369,21 +1369,77 @@ jobs:
               raise SystemExit("Neither expected route endpoint was found.")
           PY
 
-      - name: Verify Niko speech recognition wiring
+      - name: Wire Niko speech recognition at final source stage
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          launcher = "val nikoSpeechLauncherForHome ="
-          call = "nikoSpeechLauncherForHome.launch(intent)"
+          imports = [
+              "import android.app.Activity",
+              "import android.content.Intent",
+              "import android.speech.RecognizerIntent",
+              "import android.speech.tts.TextToSpeech",
+              "import android.widget.Toast",
+              "import androidx.activity.compose.rememberLauncherForActivityResult",
+              "import androidx.activity.result.contract.ActivityResultContracts",
+          ]
+          marker = "package com.oli.routesave.ui.compose\\n"
+          missing = [line for line in imports if line not in s]
+          if missing:
+              s = s.replace(marker, marker + "\\n" + "\\n".join(missing) + "\\n", 1)
+          composable = "fun RouteSaveComposeApp()"
+          pos = s.find(composable)
+          if pos < 0:
+              raise SystemExit("RouteSaveComposeApp declaration missing.")
+          launcher = "val nikoSpeechLauncherForHome = rememberLauncherForActivityResult"
           if launcher not in s:
-              raise SystemExit("Niko speech launcher was not injected into RouteSaveComposeApp.")
-          if call not in s:
-              raise SystemExit("Niko voice button is not connected to the speech launcher.")
+              anchor = "    val context = LocalContext.current"
+              at = s.find(anchor, pos)
+              if at < 0:
+                  raise SystemExit("Could not locate context in RouteSaveComposeApp.")
+              setup = """ 
+              val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                  val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+                  if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
+                      Toast.makeText(context, "Niko počul: $phrase", Toast.LENGTH_LONG).show()
+                      val speaker = TextToSpeech(context) { status ->
+                          if (status == TextToSpeech.SUCCESS) {
+                              speakerLanguageFallback()
+                          }
+                      }
+                  } else {
+                      Toast.makeText(context, "Niko nezachytil reč. Skús to znova.", Toast.LENGTH_LONG).show()
+                  }
+                  assistantListening = false
+              }
+              """
+              setup = setup.replace("                              speakerLanguageFallback()", '                              speaker.setLanguage(java.util.Locale("sk", "SK"))\\n                              speaker.speak("Počul som: $phrase", TextToSpeech.QUEUE_FLUSH, null, "niko-response")')
+              s = s[:at + len(anchor)] + "\\n" + setup + s[at + len(anchor):]
+          old = "onAssistantClick = { assistantListening = !assistantListening }"
+          if old in s:
+              handler = """onAssistantClick = {
+                              val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
+                                  putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
+                                  putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                              }
+                              try {
+                                  assistantListening = true
+                                  nikoSpeechLauncherForHome.launch(intent)
+                              } catch (e: Exception) {
+                                  assistantListening = false
+                                  Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
+                              }
+                          }"""
+              s = s.replace(old, handler, 1)
+          if "nikoSpeechLauncherForHome.launch(intent)" not in s:
+              raise SystemExit("Could not wire Niko button to speech recognition.")
           if "onAssistantClick = { assistantListening = !assistantListening }" in s:
-              raise SystemExit("Niko button is still a mock toggle.")
-          print("Verified: Niko button opens Android speech recognition.")
+              raise SystemExit("Niko button still uses mock toggle.")
+          p.write_text(s)
+          print("Niko speech launcher and button handler verified at final source stage.")
           PY
 
       - name: Build debug APK and save build log
@@ -1398,4 +1454,3 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OLI-RouteSave-debug-APK
-          path: android-project/app/build/outputs/apk/debug/app-debug.apk
