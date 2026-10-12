@@ -1377,17 +1377,32 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           old = "onAssistantClick = { assistantListening = !assistantListening }"
-          # The HomeScreen callback is wired inline to the launcher created in RouteSaveComposeApp.
-          # Never introduce a local-function reference that can escape its Kotlin scope.
+          wired = """onAssistantClick = {
+                              val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
+                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
+                                  putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
+                                  putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                              }
+                              try {
+                                  assistantListening = true
+                                  nikoSpeechLauncher.launch(intent)
+                              } catch (e: Exception) {
+                                  assistantListening = false
+                                  Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
+                              }
+                          }"""
           if "onAssistantClick = { startNikoSpeech() }" in s:
               s = s.replace("onAssistantClick = { startNikoSpeech() }", old)
           if old not in s:
               raise SystemExit("Could not find Niko voice button handler; refusing to build a non-functional button.")
-          if "nikoSpeechLauncher.launch(intent)" not in s:
-              raise SystemExit("Niko speech launcher wiring is missing; refusing to build.")
+          if "val nikoSpeechLauncher =" not in s:
+              raise SystemExit("Niko speech launcher declaration is missing; refusing to build.")
+          s = s.replace(old, wired, 1)
           s = s.replace("Počúvam… (ukážkový režim)", "Spúšťam rozpoznávanie reči…")
           p.write_text(s)
-          print("Verified Niko speech launcher and refreshed the assistant status text.")
+          print("Connected the HomeScreen button directly to the Android speech launcher.")
           PY
 
       - name: Build debug APK and save build log
