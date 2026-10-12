@@ -1206,7 +1206,7 @@ jobs:
                                   val id = element.optString("type") + "/" + element.optString("id")
                                   if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
                               }
-                              val rows = mutableListOf<String>()
+                              val rows = mutableListOf<Pair<Double, String>>()
                               val routeRoadKm = routeDistanceKm?.toDoubleOrNull()
                               for (element in uniqueElements.values) {
                                   val tags = element.optJSONObject("tags") ?: org.json.JSONObject()
@@ -1232,10 +1232,9 @@ jobs:
                                   val distanceLabel = if (nearestDistanceKm < Double.MAX_VALUE) " — približne " + String.format(java.util.Locale.getDefault(), "%.1f", nearestDistanceKm) + " km od kontrolného bodu" else ""
                                   val progressLabel = routeRoadKm?.let { " — približne " + String.format(java.util.Locale.getDefault(), "%.0f", it * nearestFraction) + " km od začiatku trasy" } ?: ""
                                   val fuel = listOf("diesel" to "nafta", "octane_95" to "benzín 95", "octane_98" to "benzín 98").mapNotNull { (key, label) -> if (tags.optString(key).equals("yes", true)) label else null }
-                                  rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + distanceLabel + progressLabel + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
-                                  if (rows.size >= 20) break
+                                  rows.add(Pair(nearestFraction, "• " + name + (brand?.let { " (" + it + ")" } ?: "") + distanceLabel + progressLabel + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else "")))
                               }
-                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru (vzdialenosti sú približné; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
+                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru (vzdialenosti a poradie sú približné; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.sortedBy { it.first }.take(20).joinToString("\\n") { it.second }
                           } catch (e: Exception) {
                               fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
                           } finally {
