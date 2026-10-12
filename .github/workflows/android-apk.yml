@@ -1144,7 +1144,20 @@ jobs:
                           fuelStationsText = "Vyhľadávam čerpacie stanice v okolí začiatku trasy…"
                           try {
                               val point = geocode(startPlace.trim())
-                              val query = "[out:json][timeout:20];(node(around:5000," + point.second + "," + point.first + ")[amenity=fuel];way(around:5000," + point.second + "," + point.first + ")[amenity=fuel];relation(around:5000," + point.second + "," + point.first + ")[amenity=fuel];);out center tags;"
+                              val destinationPoint = geocode(destinationPlace.trim())
+                              val sampleFractions = listOf(0.0, 0.25, 0.5, 0.75, 1.0)
+                              val samplePoints = sampleFractions.map { fraction ->
+                                  Pair(
+                                      point.first + (destinationPoint.first - point.first) * fraction,
+                                      point.second + (destinationPoint.second - point.second) * fraction
+                                  )
+                              }
+                              val aroundQueries = samplePoints.joinToString("") { sample ->
+                                  "node(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];" +
+                                  "way(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];" +
+                                  "relation(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];"
+                              }
+                              val query = "[out:json][timeout:25];(" + aroundQueries + ");out center tags;"
                               val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
                               val endpoints = listOf(
                                   "https://overpass-api.de/api/interpreter",
