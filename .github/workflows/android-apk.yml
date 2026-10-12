@@ -1207,15 +1207,35 @@ jobs:
                                   if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
                               }
                               val rows = mutableListOf<String>()
+                              val routeRoadKm = routeDistanceKm?.toDoubleOrNull()
                               for (element in uniqueElements.values) {
                                   val tags = element.optJSONObject("tags") ?: org.json.JSONObject()
                                   val name = tags.optString("name").takeIf { it.isNotBlank() } ?: tags.optString("brand").takeIf { it.isNotBlank() } ?: "Čerpacia stanica bez názvu"
                                   val brand = tags.optString("brand").takeIf { it.isNotBlank() && it != name }
+                                  val longitude = if (element.has("lon")) element.optDouble("lon") else element.optJSONObject("center")?.optDouble("lon") ?: Double.NaN
+                                  val latitude = if (element.has("lat")) element.optDouble("lat") else element.optJSONObject("center")?.optDouble("lat") ?: Double.NaN
+                                  var nearestFraction = 0.0
+                                  var nearestDistanceKm = Double.MAX_VALUE
+                                  if (!longitude.isNaN() && !latitude.isNaN()) {
+                                      for (fraction in sampleFractions) {
+                                          val sampleLongitude = point.first + (destinationPoint.first - point.first) * fraction
+                                          val sampleLatitude = point.second + (destinationPoint.second - point.second) * fraction
+                                          val dx = (longitude - sampleLongitude) * 111.0 * kotlin.math.cos(Math.toRadians(latitude))
+                                          val dy = (latitude - sampleLatitude) * 111.0
+                                          val distanceKm = kotlin.math.sqrt(dx * dx + dy * dy)
+                                          if (distanceKm < nearestDistanceKm) {
+                                              nearestDistanceKm = distanceKm
+                                              nearestFraction = fraction
+                                          }
+                                      }
+                                  }
+                                  val distanceLabel = if (nearestDistanceKm < Double.MAX_VALUE) " — približne " + String.format(java.util.Locale.getDefault(), "%.1f", nearestDistanceKm) + " km od kontrolného bodu" else ""
+                                  val progressLabel = routeRoadKm?.let { " — približne " + String.format(java.util.Locale.getDefault(), "%.0f", it * nearestFraction) + " km od začiatku trasy" } ?: ""
                                   val fuel = listOf("diesel" to "nafta", "octane_95" to "benzín 95", "octane_98" to "benzín 98").mapNotNull { (key, label) -> if (tags.optString(key).equals("yes", true)) label else null }
-                                  rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
+                                  rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + distanceLabel + progressLabel + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
                                   if (rows.size >= 20) break
                               }
-                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru trasy (do 5 km od piatich bodov; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
+                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru (vzdialenosti sú približné; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
                           } catch (e: Exception) {
                               fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
                           } finally {
