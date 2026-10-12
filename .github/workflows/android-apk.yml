@@ -1431,7 +1431,7 @@ jobs:
                                   Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
                               }
                           }'''
-              s = s.replace(old, handler, 1)
+              s = s.replace(old, handler)
           if "nikoSpeechLauncherForHome.launch(intent)" not in s:
               raise SystemExit("Could not wire Niko button to speech recognition.")
           if "onAssistantClick = { assistantListening = !assistantListening }" in s:
