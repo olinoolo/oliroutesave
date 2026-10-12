@@ -1387,7 +1387,7 @@ jobs:
           ]
           for line in imports:
               if line not in s:
-                  s = s.replace(package_line, package_line + "\\n" + line, 1)
+                  s = s.replace(package_line, package_line + "\n" + line, 1)
           anchor = "    val context = LocalContext.current"
           if "val nikoSpeechLauncherForHome = rememberLauncherForActivityResult" not in s:
               at = s.find(anchor, s.find("fun RouteSaveComposeApp()"))
@@ -1413,7 +1413,7 @@ jobs:
                   assistantListening = false
               }
 '''
-              s = s[:at + len(anchor)] + "\\n" + setup + s[at + len(anchor):]
+              s = s[:at + len(anchor)] + "\n" + setup + s[at + len(anchor):]
           old = "onAssistantClick = { assistantListening = !assistantListening }"
           if old in s:
               handler = '''onAssistantClick = {
