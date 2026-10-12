@@ -1413,6 +1413,32 @@ jobs:
           print("Ensured microphone permission and updated only Niko voice status labels.")
           PY
 
+      - name: Update home voice card to match Niko speech handler
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("android-project/app/src/main")
+          files = list(root.rglob("*.kt"))
+          replacements = {
+              '"Tvoj AI spolujazdec"': '"Hlasový asistent Niko"',
+              '"(ukážkový režim)"': '""',
+              '"Ukážkový vzhľad aplikácie — navigácia a hlasové funkcie ešte potrebujú reálne služby."': '"Hlasový asistent Niko: rozpoznávanie reči a základné hlasové odpovede."',
+              '"Ukážkový vzhľad aplikácie – navigácia a hlasové funkcie ešte potrebujú reálne služby."': '"Hlasový asistent Niko: rozpoznávanie reči a základné hlasové odpovede."',
+          }
+          changed = []
+          for path in files:
+              text = path.read_text()
+              updated = text
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  path.write_text(updated)
+                  changed.append(str(path))
+          print("Updated home voice card text in: " + (", ".join(changed) if changed else "no matching text found"))
+          if not changed:
+              raise SystemExit("Voice card strings were not found; refusing to claim the UI patch succeeded.")
+          PY
+
       - name: Patch route screen with real road-distance lookup
         run: python3 scripts/patch-route-screen.py
 
