@@ -90,6 +90,8 @@ jobs:
               "import androidx.compose.material.icons.filled.VolumeOff",
               "import com.oli.routesave.travel.TravelMode",
               "import androidx.compose.runtime.rememberCoroutineScope",
+              "import androidx.compose.runtime.LaunchedEffect",
+              "import kotlinx.coroutines.delay",
               "import kotlinx.coroutines.Dispatchers",
               "import kotlinx.coroutines.launch",
               "import kotlinx.coroutines.withContext",
@@ -259,6 +261,40 @@ jobs:
               'Text(routeLookupMessage, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)\n              }',
               1
           )
+          # Automatically recalculate after both places are entered; debounce typing and clear stale distance.
+          if "AUTO_ROUTE_DISTANCE_EFFECT" not in calculator_source:
+              destination_pattern = re.compile(r'(^[ \t]*var destinationText by rememberSaveable \{ mutableStateOf\("[^"]*"\) \})', re.M)
+              destination_match = destination_pattern.search(calculator_source)
+              if not destination_match:
+                  raise SystemExit("Could not safely locate destination field state for automatic route calculation.")
+              auto_effect = '''
+          // AUTO_ROUTE_DISTANCE_EFFECT: debounce place entry and never keep stale kilometres.
+          LaunchedEffect(originText, destinationText) {
+              if (originText.isBlank() || destinationText.isBlank()) {
+                  distanceText = ""
+                  routeLookupMessage = ""
+                  return@LaunchedEffect
+              }
+              distanceText = ""
+              routeLookupMessage = "Vyhľadávam trasu…"
+              delay(1200)
+              routeLookupLoading = true
+              try {
+                  val km = findRoadDistanceKm(originText.trim(), destinationText.trim())
+                  distanceText = String.format(java.util.Locale.US, "%.1f", km)
+                  routeLookupMessage = "Vypočítaná cestná vzdialenosť: %.1f km".format(java.util.Locale.getDefault(), km)
+                  resultText = ""
+                  lastSavedEstimate = null
+                  saveMessage = ""
+              } catch (e: Exception) {
+                  distanceText = ""
+                  routeLookupMessage = "Vzdialenosť sa nepodarilo vypočítať. Skontroluj názvy miest a internet."
+              } finally {
+                  routeLookupLoading = false
+              }
+          }
+          '''
+              calculator_source = calculator_source[:destination_match.end()] + auto_effect + calculator_source[destination_match.end():]
           calculator_file.write_text(calculator_source)
           print(f"Connected saved route distance and road lookup to calculator source: {calculator_file}")
           print("--- CALCULATOR FUNCTION SOURCE FOR TARGETED DISTANCE FIX ---")
