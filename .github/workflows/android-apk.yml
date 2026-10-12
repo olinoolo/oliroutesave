@@ -497,8 +497,7 @@ jobs:
       - name: Inspect route and community implementation before feature fixes
         run: |
           python3 - <<'PY'
-          from pathlib import Path
-          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          from pathlib import Path          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           lines = p.read_text().splitlines()
           for i, line in enumerate(lines):
               if any(token in line for token in ("private fun RouteScreen", "private fun Community", "Button(onClick = {},", "OutlinedButton(onClick = {},", "rememberSaveable { mutableStateOf(100", "mutableStateOf(100")):
@@ -997,8 +996,7 @@ jobs:
                           tripHistoryService = tripHistoryService,''',1)
           # The comparison UI references a four-mode enum; keep it local to this Compose file.
           s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\\n', '', s, flags=re.M)
-          if "private enum class TravelMode" not in s:
-              s = s.replace("package com.oli.routesave.ui.compose\n", "package com.oli.routesave.ui.compose\n\nprivate enum class TravelMode { CAR, TRAIN, BUS, PLANE }\n", 1)
+          if "private enum class TravelMode" not in s:              s = s.replace("package com.oli.routesave.ui.compose\n", "package com.oli.routesave.ui.compose\n\nprivate enum class TravelMode { CAR, TRAIN, BUS, PLANE }\n", 1)
           p.write_text(s)
           print("Applied final Compose syntax, calculator return, HomeScreen wiring, and travel-mode compatibility fixes.")
           PY
@@ -1370,39 +1368,21 @@ jobs:
               raise SystemExit("Neither expected route endpoint was found.")
           PY
 
-      - name: Wire Niko voice button to speech recognition
+      - name: Verify Niko speech recognition wiring
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          old = "onAssistantClick = { assistantListening = !assistantListening }"
-          wired = """onAssistantClick = {
-                              val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
-                                  putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
-                                  putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                              }
-                              try {
-                                  assistantListening = true
-                                  nikoSpeechLauncherForHome.launch(intent)
-                              } catch (e: Exception) {
-                                  assistantListening = false
-                                  Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
-                              }
-                          }"""
-          if "onAssistantClick = { startNikoSpeech() }" in s:
-              s = s.replace("onAssistantClick = { startNikoSpeech() }", old)
-          if old not in s:
-              raise SystemExit("Could not find Niko voice button handler; refusing to build a non-functional button.")
-          if "val nikoSpeechLauncherForHome =" not in s:
-              raise SystemExit("Niko speech launcher declaration is missing; refusing to build.")
-          s = s.replace(old, wired, 1)
-          s = s.replace("Počúvam… (ukážkový režim)", "Spúšťam rozpoznávanie reči…")
-          p.write_text(s)
-          print("Connected the HomeScreen button directly to the Android speech launcher.")
+          launcher = "val nikoSpeechLauncherForHome ="
+          call = "nikoSpeechLauncherForHome.launch(intent)"
+          if launcher not in s:
+              raise SystemExit("Niko speech launcher was not injected into RouteSaveComposeApp.")
+          if call not in s:
+              raise SystemExit("Niko voice button is not connected to the speech launcher.")
+          if "onAssistantClick = { assistantListening = !assistantListening }" in s:
+              raise SystemExit("Niko button is still a mock toggle.")
+          print("Verified: Niko button opens Android speech recognition.")
           PY
 
       - name: Build debug APK and save build log
