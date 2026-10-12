@@ -141,13 +141,23 @@ jobs:
                   }
               }
           """
+          app_marker = "fun RouteSaveComposeApp()"
+          app_start = s.find(app_marker)
+          if app_start < 0:
+              raise SystemExit("Could not locate RouteSaveComposeApp for voice setup.")
           composable_anchor = "    val context = LocalContext.current"
-          if composable_anchor not in s:
-              raise SystemExit("Could not locate app context for voice setup.")
+          anchor_at = s.find(composable_anchor, app_start)
+          if anchor_at < 0:
+              raise SystemExit("Could not locate app context inside RouteSaveComposeApp.")
           if "val nikoSpeechLauncher =" not in s:
-              s = s.replace(composable_anchor, composable_anchor + "\n" + voice_setup, 1)
-          s = s.replace("onAssistantClick = { assistantListening = !assistantListening }", "onAssistantClick = { startNikoSpeech() }")
-          s = s.replace("onAssistantClick = { assistantListening = !assistantListening }", "onAssistantClick = { startNikoSpeech() }")
+              insert_at = anchor_at + len(composable_anchor)
+              s = s[:insert_at] + "\n" + voice_setup + s[insert_at:]
+          old_handler = "onAssistantClick = { assistantListening = !assistantListening }"
+          wired_handler = "onAssistantClick = { startNikoSpeech() }"
+          s = s.replace(wired_handler, old_handler)
+          if old_handler not in s:
+              raise SystemExit("Could not find Niko voice button handler.")
+          s = s.replace(old_handler, wired_handler, 1)
           s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
           s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
           # Locate the calculator wherever it is defined in the Android project.
