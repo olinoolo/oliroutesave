@@ -1158,6 +1158,9 @@ jobs:
                                   "relation(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];"
                               }
                               val query = "[out:json][timeout:25];(" + aroundQueries + ");out center tags;"
+                              val routeDistanceForStationsKm = routeDistanceKm?.toDoubleOrNull()
+                              val uniqueElements = linkedMapOf<String, org.json.JSONObject>()
+                              // The five search circles overlap, so ask Overpass to deduplicate by element id.
                               val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
                               val endpoints = listOf(
                                   "https://overpass-api.de/api/interpreter",
