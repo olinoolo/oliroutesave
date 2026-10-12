@@ -109,7 +109,7 @@ jobs:
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
 
           voice_setup = r"""
-              val nikoSpeechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+              val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                   val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
                       Toast.makeText(context, "Niko počul: $phrase", Toast.LENGTH_LONG).show()
@@ -135,9 +135,9 @@ jobs:
           anchor_at = s.find(composable_anchor, app_start)
           if anchor_at < 0:
               raise SystemExit("Could not locate app context inside RouteSaveComposeApp.")
-          if "val nikoSpeechLauncher =" not in s:
-              insert_at = anchor_at + len(composable_anchor)
-              s = s[:insert_at] + "\n" + voice_setup + s[insert_at:]
+          # Always inject a uniquely named launcher into this composable's own scope.
+          insert_at = anchor_at + len(composable_anchor)
+          s = s[:insert_at] + "\n" + voice_setup + s[insert_at:]
           old_handler = "onAssistantClick = { assistantListening = !assistantListening }"
           wired_handler = """onAssistantClick = {
                               val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -149,7 +149,7 @@ jobs:
                               }
                               try {
                                   assistantListening = true
-                                  nikoSpeechLauncher.launch(intent)
+                                  nikoSpeechLauncherForHome.launch(intent)
                               } catch (e: Exception) {
                                   assistantListening = false
                                   Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
@@ -1387,7 +1387,7 @@ jobs:
                               }
                               try {
                                   assistantListening = true
-                                  nikoSpeechLauncher.launch(intent)
+                                  nikoSpeechLauncherForHome.launch(intent)
                               } catch (e: Exception) {
                                   assistantListening = false
                                   Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
@@ -1397,7 +1397,7 @@ jobs:
               s = s.replace("onAssistantClick = { startNikoSpeech() }", old)
           if old not in s:
               raise SystemExit("Could not find Niko voice button handler; refusing to build a non-functional button.")
-          if "val nikoSpeechLauncher =" not in s:
+          if "val nikoSpeechLauncherForHome =" not in s:
               raise SystemExit("Niko speech launcher declaration is missing; refusing to build.")
           s = s.replace(old, wired, 1)
           s = s.replace("Počúvam… (ukážkový režim)", "Spúšťam rozpoznávanie reči…")
