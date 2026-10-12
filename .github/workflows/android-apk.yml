@@ -1383,9 +1383,11 @@ jobs:
               s = s.replace("onAssistantClick = { startNikoSpeech() }", old)
           if old not in s:
               raise SystemExit("Could not find Niko voice button handler; refusing to build a non-functional button.")
+          if "nikoSpeechLauncher.launch(intent)" not in s:
+              raise SystemExit("Niko speech launcher wiring is missing; refusing to build.")
           s = s.replace("Počúvam… (ukážkový režim)", "Spúšťam rozpoznávanie reči…")
           p.write_text(s)
-          print(f"Connected {count} Niko voice button handler(s) to Android speech recognition.")
+          print("Verified Niko speech launcher and refreshed the assistant status text.")
           PY
 
       - name: Build debug APK and save build log
