@@ -1146,20 +1146,38 @@ jobs:
                               val point = geocode(startPlace.trim())
                               val query = "[out:json][timeout:20];(node(around:5000," + point.second + "," + point.first + ")[amenity=fuel];way(around:5000," + point.second + "," + point.first + ")[amenity=fuel];relation(around:5000," + point.second + "," + point.first + ")[amenity=fuel];);out center tags;"
                               val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-                              val url = java.net.URL("https://overpass-api.de/api/interpreter?data=" + encodedQuery)
-                              val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
-                                  requestMethod = "GET"
-                                  connectTimeout = 15000
-                                  readTimeout = 25000
-                                  setRequestProperty("User-Agent", "OLI-RouteSave-Android/0.1")
+                              val endpoints = listOf(
+                                  "https://overpass-api.de/api/interpreter?data=",
+                                  "https://overpass.kumi.systems/api/interpreter?data=",
+                                  "https://overpass.private.coffee/api/interpreter?data="
+                              )
+                              var body = ""
+                              var lastError = "Mapová služba neodpovedá"
+                              for (endpoint in endpoints) {
+                                  var connection: java.net.HttpURLConnection? = null
+                                  try {
+                                      connection = (java.net.URL(endpoint + encodedQuery).openConnection() as java.net.HttpURLConnection).apply {
+                                          requestMethod = "GET"
+                                          connectTimeout = 10000
+                                          readTimeout = 15000
+                                          setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android; fuel station lookup)")
+                                          setRequestProperty("Accept", "application/json")
+                                      }
+                                      val status = connection.responseCode
+                                      val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                                      val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                                      if (status in 200..299 && response.isNotBlank()) {
+                                          body = response
+                                          break
+                                      }
+                                      lastError = "Mapová služba HTTP " + status
+                                  } catch (e: Exception) {
+                                      lastError = e.message ?: e.javaClass.simpleName
+                                  } finally {
+                                      connection?.disconnect()
+                                  }
                               }
-                              val body = try {
-                                  val status = connection.responseCode
-                                  val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                                  val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
-                                  if (status !in 200..299) throw java.io.IOException("Vyhľadávanie staníc HTTP " + status)
-                                  response
-                              } finally { connection.disconnect() }
+                              if (body.isBlank()) throw java.io.IOException("Vyhľadávanie zlyhalo: " + lastError)
                               val elements = org.json.JSONObject(body).optJSONArray("elements") ?: org.json.JSONArray()
                               val rows = mutableListOf<String>()
                               for (i in 0 until elements.length()) {
