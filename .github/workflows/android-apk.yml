@@ -114,6 +114,31 @@ jobs:
               s = s.replace(marker, marker + "import android.app.Activity\n", 1)
 
           voice_setup = r"""
+              val nikoTtsReady = remember { mutableStateOf(false) }
+              val nikoPendingSpeech = remember { mutableStateOf("") }
+              val nikoTtsEngine = remember(context) {
+                  TextToSpeech(context) { status ->
+                      nikoTtsReady.value = status == TextToSpeech.SUCCESS
+                  }
+              }
+              DisposableEffect(nikoTtsEngine) {
+                  onDispose {
+                      nikoTtsEngine.stop()
+                      nikoTtsEngine.shutdown()
+                  }
+              }
+              LaunchedEffect(nikoTtsReady.value, nikoPendingSpeech.value) {
+                  val pending = nikoPendingSpeech.value
+                  if (nikoTtsReady.value && pending.isNotBlank()) {
+                      val languageResult = nikoTtsEngine.setLanguage(java.util.Locale("sk", "SK"))
+                      if (languageResult >= TextToSpeech.LANG_AVAILABLE) {
+                          nikoTtsEngine.setSpeechRate(0.92f)
+                          nikoTtsEngine.setPitch(0.82f)
+                          nikoTtsEngine.speak(pending, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
+                      }
+                      nikoPendingSpeech.value = ""
+                  }
+              }
               val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                   val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty().trim()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
@@ -133,13 +158,7 @@ jobs:
                           else ->
                               "Rozumiem, povedal si: $phrase. Zatial viem pomoct s trasou, spotrebou paliva a udajmi o vozidle. Skus povedat pomoc."
                       }
-                      lateinit var ttsEngine: TextToSpeech
-                      ttsEngine = TextToSpeech(context) { status ->
-                          if (status == TextToSpeech.SUCCESS) {
-                              ttsEngine.setLanguage(java.util.Locale("sk", "SK"))
-                              ttsEngine.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
-                          }
-                      }
+                      nikoPendingSpeech.value = answer
                       Toast.makeText(context, answer, Toast.LENGTH_LONG).show()
                   } else {
                       Toast.makeText(context, "Niko nezachytil rec. Skus to znova.", Toast.LENGTH_LONG).show()
