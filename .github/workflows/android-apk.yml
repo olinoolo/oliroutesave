@@ -497,7 +497,8 @@ jobs:
       - name: Inspect route and community implementation before feature fixes
         run: |
           python3 - <<'PY'
-          from pathlib import Path          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           lines = p.read_text().splitlines()
           for i, line in enumerate(lines):
               if any(token in line for token in ("private fun RouteScreen", "private fun Community", "Button(onClick = {},", "OutlinedButton(onClick = {},", "rememberSaveable { mutableStateOf(100", "mutableStateOf(100")):
@@ -1398,27 +1399,3 @@ jobs:
         with:
           name: OLI-RouteSave-debug-APK
           path: android-project/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Publish APK as a downloadable GitHub release
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          apk="android-project/app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$apk"
-          tag="test-build-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --title "OLI RouteSave test build ${GITHUB_RUN_NUMBER}" --notes "Automated test APK. Install for testing only; not a production release."
-
-      - name: Upload build diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OLI-RouteSave-build-diagnostics
-          path: |
-            build-log.txt
-            android-project/app/build/reports/**
-            android-project/app/build/test-results/**
-          if-no-files-found: warn
-          retention-days: 7
