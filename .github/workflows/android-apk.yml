@@ -1129,7 +1129,7 @@ jobs:
           if "var fuelStationsText by rememberSaveable" not in s:
               state_line = state_match.group(0)
               indent = state_line[:len(state_line) - len(state_line.lstrip())]
-              insertion = "\\n" + indent + 'var fuelStationsText by rememberSaveable { mutableStateOf("") }' + "\\n" + indent + 'var findingFuelStations by rememberSaveable { mutableStateOf(false) }'
+              insertion = "\n" + indent + 'var fuelStationsText by rememberSaveable { mutableStateOf("") }' + "\n" + indent + 'var findingFuelStations by rememberSaveable { mutableStateOf(false) }'
               s = s[:state_match.end()] + insertion + s[state_match.end():]
           ui_match = re.search(r'(?m)^\s*Text\(routeStatus,.*fontSize = 13\.sp\)', s)
           if not ui_match:
