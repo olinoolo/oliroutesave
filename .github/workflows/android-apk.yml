@@ -6,6 +6,7 @@ on:
     paths:
       - "OLI_RouteSave_Android_FINAL_PROJECT_44_00.zip"
       - ".github/workflows/android-apk.yml"
+      - "scripts/patch-route-screen.py"
 
 permissions:
   contents: write
@@ -1395,6 +1396,9 @@ jobs:
           source.write_text(kotlin)
           print("Ensured microphone permission and updated only Niko voice status labels.")
           PY
+
+      - name: Patch route screen with real road-distance lookup
+        run: python3 scripts/patch-route-screen.py
 
       - name: Build debug APK and save build log
         shell: bash
