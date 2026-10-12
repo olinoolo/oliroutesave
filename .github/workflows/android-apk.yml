@@ -1207,15 +1207,18 @@ jobs:
                                   if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
                               }
                               val rows = mutableListOf<String>()
+                              val normalizedStations = mutableSetOf<String>()
                               for (element in uniqueElements.values) {
                                   val tags = element.optJSONObject("tags") ?: org.json.JSONObject()
                                   val name = tags.optString("name").takeIf { it.isNotBlank() } ?: tags.optString("brand").takeIf { it.isNotBlank() } ?: "Čerpacia stanica bez názvu"
                                   val brand = tags.optString("brand").takeIf { it.isNotBlank() && it != name }
+                                  val stationKey = (tags.optString("brand").ifBlank { name }).lowercase(java.util.Locale.ROOT).replace(Regex("[^a-z0-9]+"), "")
+                                  if (!normalizedStations.add(stationKey)) continue
                                   val fuel = listOf("diesel" to "nafta", "octane_95" to "benzín 95", "octane_98" to "benzín 98").mapNotNull { (key, label) -> if (tags.optString(key).equals("yes", true)) label else null }
                                   rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
-                                  if (rows.size >= 12) break
+                                  if (rows.size >= 20) break
                               }
-                              fuelStationsText = if (rows.isEmpty()) "V okolí sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru trasy (do 5 km od piatich bodov; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
+                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru trasy (do 5 km od piatich bodov; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
                           } catch (e: Exception) {
                               fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
                           } finally {
