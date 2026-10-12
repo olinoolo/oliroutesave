@@ -110,6 +110,27 @@ jobs:
           s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
 
           voice_setup = r"""
+              val nikoMicPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                  if (granted) {
+                      val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
+                          putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
+                          putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                      }
+                      try {
+                          assistantListening = true
+                          nikoSpeechLauncherForHome.launch(speechIntent)
+                      } catch (e: Exception) {
+                          assistantListening = false
+                          Toast.makeText(context, "Rozpoznávanie reči nie je v telefóne dostupné.", Toast.LENGTH_LONG).show()
+                      }
+                  } else {
+                      assistantListening = false
+                      Toast.makeText(context, "Povoľ mikrofón pre OLI RouteSave v nastaveniach telefónu.", Toast.LENGTH_LONG).show()
+                  }
+              }
               val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                   val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty().trim()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
@@ -157,20 +178,7 @@ jobs:
           s = s[:insert_at] + "\n" + voice_setup + s[insert_at:]
           old_handler = "onAssistantClick = { assistantListening = !assistantListening }"
           wired_handler = """onAssistantClick = {
-                              val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
-                                  putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
-                                  putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
-                                  putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                              }
-                              try {
-                                  assistantListening = true
-                                  nikoSpeechLauncherForHome.launch(intent)
-                              } catch (e: Exception) {
-                                  assistantListening = false
-                                  Toast.makeText(context, "Rozpoznávanie reči nie je dostupné.", Toast.LENGTH_LONG).show()
-                              }
+                              nikoMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                           }"""
           s = s.replace("onAssistantClick = { startNikoSpeech() }", old_handler)
           if old_handler not in s:
