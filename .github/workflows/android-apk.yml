@@ -193,7 +193,10 @@ jobs:
           for candidate in project.glob("app/src/main/java/**/*.kt"):
               candidate_source = candidate.read_text()
               if "TripCostQuickCalculator" in candidate_source and "distanceText" in candidate_source:
-                  calculator_file, calculator_source = candidate, candidate_source
+                  calculator_file = candidate
+                  # If the calculator is in RouteSaveComposeApp.kt, preserve the
+                  # voice launcher/handler changes already applied to in-memory s.
+                  calculator_source = s if candidate.resolve() == compose.resolve() else candidate_source
                   break
           if calculator_file is None:
               raise SystemExit("Could not safely locate the trip calculator source.")
