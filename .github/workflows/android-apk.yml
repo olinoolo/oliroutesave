@@ -1442,6 +1442,23 @@ jobs:
       - name: Patch route screen with real road-distance lookup
         run: python3 scripts/patch-route-screen.py
 
+      - name: Final cleanup of demo wording on home voice card
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("android-project/app/src/main")
+          changed = []
+          for p in root.rglob("*.kt"):
+              original = p.read_text()
+              updated = original.replace("ukážkový režim", "hlasový režim")
+              updated = updated.replace("Ukážková jazda", "Jazda")
+              updated = updated.replace("SPUSTIŤ UKÁŽKOVÚ JAZDU", "SPUSTIŤ JAZDU")
+              if updated != original:
+                  p.write_text(updated)
+                  changed.append(str(p))
+          print("Final demo-wording cleanup:", ", ".join(changed) if changed else "no matching wording")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
