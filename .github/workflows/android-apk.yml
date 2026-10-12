@@ -1151,33 +1151,36 @@ jobs:
                                   "https://overpass.kumi.systems/api/interpreter?data=",
                                   "https://overpass.private.coffee/api/interpreter?data="
                               )
-                              var body = ""
-                              var lastError = "Mapová služba neodpovedá"
-                              for (endpoint in endpoints) {
-                                  var connection: java.net.HttpURLConnection? = null
-                                  try {
-                                      connection = (java.net.URL(endpoint + encodedQuery).openConnection() as java.net.HttpURLConnection).apply {
-                                          requestMethod = "GET"
-                                          connectTimeout = 10000
-                                          readTimeout = 15000
-                                          setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android; fuel station lookup)")
-                                          setRequestProperty("Accept", "application/json")
+                              val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                  var responseBody = ""
+                                  var lastError = "Mapová služba neodpovedá"
+                                  for (endpoint in endpoints) {
+                                      var connection: java.net.HttpURLConnection? = null
+                                      try {
+                                          connection = (java.net.URL(endpoint + encodedQuery).openConnection() as java.net.HttpURLConnection).apply {
+                                              requestMethod = "GET"
+                                              connectTimeout = 10000
+                                              readTimeout = 15000
+                                              setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android; fuel station lookup)")
+                                              setRequestProperty("Accept", "application/json")
+                                          }
+                                          val status = connection.responseCode
+                                          val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                                          val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                                          if (status in 200..299 && response.isNotBlank()) {
+                                              responseBody = response
+                                              break
+                                          }
+                                          lastError = "Mapová služba HTTP " + status
+                                      } catch (e: Exception) {
+                                          lastError = e.message ?: e.javaClass.simpleName
+                                      } finally {
+                                          connection?.disconnect()
                                       }
-                                      val status = connection.responseCode
-                                      val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                                      val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
-                                      if (status in 200..299 && response.isNotBlank()) {
-                                          body = response
-                                          break
-                                      }
-                                      lastError = "Mapová služba HTTP " + status
-                                  } catch (e: Exception) {
-                                      lastError = e.message ?: e.javaClass.simpleName
-                                  } finally {
-                                      connection?.disconnect()
                                   }
+                                  if (responseBody.isBlank()) throw java.io.IOException("Vyhľadávanie zlyhalo: " + lastError)
+                                  responseBody
                               }
-                              if (body.isBlank()) throw java.io.IOException("Vyhľadávanie zlyhalo: " + lastError)
                               val elements = org.json.JSONObject(body).optJSONArray("elements") ?: org.json.JSONArray()
                               val rows = mutableListOf<String>()
                               for (i in 0 until elements.length()) {
