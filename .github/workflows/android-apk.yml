@@ -111,17 +111,33 @@ jobs:
 
           voice_setup = r"""
               val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-                  val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+                  val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty().trim()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
-                      Toast.makeText(context, "Niko počul: $phrase", Toast.LENGTH_LONG).show()
+                      val normalized = java.text.Normalizer.normalize(phrase.lowercase(java.util.Locale("sk", "SK")), java.text.Normalizer.Form.NFD)
+                          .replace(Regex("\\p{Mn}+"), "")
+                      val answer = when {
+                          listOf("pomoc", "co vies", "co dokazes", "prikazy").any { normalized.contains(it) } ->
+                              "Som Niko, tvoj hlasovy asistent. Mozes sa ma opytat na trasu, spotrebu paliva alebo udaje o vozidle."
+                          listOf("palivo", "spotreba", "cena cesty", "naklady").any { normalized.contains(it) } ->
+                              "Na vypocet nakladov potrebujem trasu a priemernu spotrebu vozidla. Skontroluj tieto udaje v kalkulacke cesty."
+                          listOf("trasa", "navig", "kilomet", "vzdialen").any { normalized.contains(it) } ->
+                              "Pri planovani trasy zadaj miesto odchodu a ciel. Vzdialenost sa ma pocitat podla cestnej trasy."
+                          listOf("vozidlo", "auto", "kamion").any { normalized.contains(it) } ->
+                              "Udaje o vozidle a jeho spotrebe najdes v profile vozidla."
+                          listOf("dakujem", "vdaka").any { normalized.contains(it) } ->
+                              "Rado sa stalo. Som tu, ked ma budes potrebovat."
+                          else ->
+                              "Rozumiem, povedal si: $phrase. Zatial viem pomoct s trasou, spotrebou paliva a udajmi o vozidle. Skus povedat pomoc."
+                      }
                       val tts = TextToSpeech(context) { status ->
                           if (status == TextToSpeech.SUCCESS) {
                               tts.setLanguage(java.util.Locale("sk", "SK"))
-                              tts.speak("Počul som: $phrase", TextToSpeech.QUEUE_FLUSH, null, "niko-response")
+                              tts.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
                           }
                       }
+                      Toast.makeText(context, answer, Toast.LENGTH_LONG).show()
                   } else {
-                      Toast.makeText(context, "Niko nezachytil reč. Skús to znova.", Toast.LENGTH_LONG).show()
+                      Toast.makeText(context, "Niko nezachytil rec. Skus to znova.", Toast.LENGTH_LONG).show()
                   }
                   assistantListening = false
               }
