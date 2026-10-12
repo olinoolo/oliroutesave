@@ -240,6 +240,8 @@ jobs:
               "import androidx.compose.material.icons.filled.VolumeOff",
               "import com.oli.routesave.travel.TravelMode",
               "import androidx.compose.runtime.rememberCoroutineScope",
+              "import androidx.compose.runtime.LaunchedEffect",
+              "import kotlinx.coroutines.delay",
               "import kotlinx.coroutines.Dispatchers",
               "import kotlinx.coroutines.launch",
               "import kotlinx.coroutines.withContext",
@@ -283,9 +285,6 @@ jobs:
                   val km = findRoadDistanceKm(originText.trim(), destinationText.trim())
                   distanceText = String.format(java.util.Locale.US, "%.1f", km)
                   routeLookupMessage = "Vypočítaná cestná vzdialenosť: %.1f km".format(java.util.Locale.getDefault(), km)
-                  resultText = ""
-                  lastSavedEstimate = null
-                  saveMessage = ""
               } catch (e: Exception) {
                   distanceText = ""
                   routeLookupMessage = "Vzdialenosť sa nepodarilo vypočítať. Skontroluj názvy miest a internet."
