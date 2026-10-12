@@ -1141,7 +1141,7 @@ jobs:
                   onClick = {
                       scope.launch {
                           findingFuelStations = true
-                          fuelStationsText = "Vyhľadávam čerpacie stanice v okolí začiatku trasy…"
+                          fuelStationsText = "Vyhľadávam čerpacie stanice pozdĺž trasy…"
                           try {
                               val point = geocode(startPlace.trim())
                               val destinationPoint = geocode(destinationPlace.trim())
@@ -1201,9 +1201,13 @@ jobs:
                                   responseBody
                               }
                               val elements = org.json.JSONObject(body).optJSONArray("elements") ?: org.json.JSONArray()
-                              val rows = mutableListOf<String>()
                               for (i in 0 until elements.length()) {
                                   val element = elements.optJSONObject(i) ?: continue
+                                  val id = element.optString("type") + "/" + element.optString("id")
+                                  if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
+                              }
+                              val rows = mutableListOf<String>()
+                              for (element in uniqueElements.values) {
                                   val tags = element.optJSONObject("tags") ?: org.json.JSONObject()
                                   val name = tags.optString("name").takeIf { it.isNotBlank() } ?: tags.optString("brand").takeIf { it.isNotBlank() } ?: "Čerpacia stanica bez názvu"
                                   val brand = tags.optString("brand").takeIf { it.isNotBlank() && it != name }
@@ -1211,7 +1215,7 @@ jobs:
                                   rows.add("• " + name + (brand?.let { " (" + it + ")" } ?: "") + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else ""))
                                   if (rows.size >= 12) break
                               }
-                              fuelStationsText = if (rows.isEmpty()) "V okolí sa nenašli stanice v mapových údajoch." else "Čerpacie stanice do 5 km od začiatku trasy (mapové údaje; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
+                              fuelStationsText = if (rows.isEmpty()) "V okolí sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru trasy (do 5 km od piatich bodov; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.joinToString("\\n")
                           } catch (e: Exception) {
                               fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
                           } finally {
