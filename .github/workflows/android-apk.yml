@@ -152,8 +152,19 @@ jobs:
               val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                   val phrase = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty().trim()
                   if (result.resultCode == Activity.RESULT_OK && phrase.isNotBlank()) {
-                      val normalized = java.text.Normalizer.normalize(phrase.lowercase(java.util.Locale("sk", "SK")), java.text.Normalizer.Form.NFD)
+                      val normalizedRaw = java.text.Normalizer.normalize(phrase.lowercase(java.util.Locale("sk", "SK")), java.text.Normalizer.Form.NFD)
                           .replace(Regex("\\p{Mn}+"), "")
+                      // Android speech recognition may return Slovak numbers as words (for example "tromi").
+                      val normalized = normalizedRaw
+                          .replace(Regex("\\b(jeden|jedna|jedno)\\b"), "1")
+                          .replace(Regex("\\b(dva|dve)\\b"), "2")
+                          .replace(Regex("\\b(tri|troch|tromi)\\b"), "3")
+                          .replace(Regex("\\b(styri|styroch)\\b"), "4")
+                          .replace(Regex("\\b(pat|piatich)\\b"), "5")
+                          .replace(Regex("\\b(sest|siestich)\\b"), "6")
+                          .replace(Regex("\\b(sedem)\\b"), "7")
+                          .replace(Regex("\\b(osem)\\b"), "8")
+                          .replace(Regex("\\b(devat)\\b"), "9")
                       val answer = when {
                           listOf("pomoc", "co vies", "co dokazes", "prikazy").any { normalized.contains(it) } ->
                               "Som Niko, tvoj hlasovy asistent. Mozes sa ma opytat na trasu, spotrebu paliva alebo udaje o vozidle."
