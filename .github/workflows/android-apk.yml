@@ -1152,59 +1152,60 @@ jobs:
                                       point.second + (destinationPoint.second - point.second) * fraction
                                   )
                               }
-                              val aroundQueries = samplePoints.joinToString("") { sample ->
-                                  "node(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];" +
-                                  "way(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];" +
-                                  "relation(around:5000," + sample.second + "," + sample.first + ")[amenity=fuel];"
-                              }
-                              val query = "[out:json][timeout:25];(" + aroundQueries + ");out center tags;"
-                              val routeDistanceForStationsKm = routeDistanceKm?.toDoubleOrNull()
                               val uniqueElements = linkedMapOf<String, org.json.JSONObject>()
-                              // The five search circles overlap, so ask Overpass to deduplicate by element id.
-                              val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
                               val endpoints = listOf(
                                   "https://overpass-api.de/api/interpreter",
                                   "https://overpass.kumi.systems/api/interpreter",
                                   "https://overpass.private.coffee/api/interpreter"
                               )
-                              val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                  var responseBody = ""
+                              // Query one corridor point at a time. Smaller requests are less likely to fail with HTTP 500.
+                              kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                  var successfulQueries = 0
                                   var lastError = "Mapová služba neodpovedá"
-                                  for (endpoint in endpoints) {
-                                      var connection: java.net.HttpURLConnection? = null
-                                      try {
-                                          connection = (java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection).apply {
-                                              requestMethod = "POST"
-                                              doOutput = true
-                                              connectTimeout = 10000
-                                              readTimeout = 20000
-                                              setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android; fuel station lookup)")
-                                              setRequestProperty("Accept", "application/json")
-                                              setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                                  for (sample in samplePoints) {
+                                      val query = "[out:json][timeout:15];(node(around:3000," + sample.second + "," + sample.first + ")[amenity=fuel];way(around:3000," + sample.second + "," + sample.first + ")[amenity=fuel];relation(around:3000," + sample.second + "," + sample.first + ")[amenity=fuel];);out center tags;"
+                                      val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+                                      var sampleLoaded = false
+                                      for (endpoint in endpoints) {
+                                          var connection: java.net.HttpURLConnection? = null
+                                          try {
+                                              connection = (java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection).apply {
+                                                  requestMethod = "POST"
+                                                  doOutput = true
+                                                  connectTimeout = 10000
+                                                  readTimeout = 20000
+                                                  setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android; fuel station lookup)")
+                                                  setRequestProperty("Accept", "application/json")
+                                                  setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                                              }
+                                              connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write("data=" + encodedQuery) }
+                                              val status = connection.responseCode
+                                              val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                                              val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                                              if (status in 200..299 && response.isNotBlank() && response.trimStart().startsWith("{")) {
+                                                  val elements = org.json.JSONObject(response).optJSONArray("elements") ?: org.json.JSONArray()
+                                                  for (i in 0 until elements.length()) {
+                                                      val element = elements.optJSONObject(i) ?: continue
+                                                      val id = element.optString("type") + "/" + element.optString("id")
+                                                      if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
+                                                  }
+                                                  successfulQueries++
+                                                  sampleLoaded = true
+                                                  break
+                                              }
+                                              lastError = "Mapová služba HTTP " + status
+                                          } catch (e: Exception) {
+                                              lastError = e.message ?: e.javaClass.simpleName
+                                          } finally {
+                                              connection?.disconnect()
                                           }
-                                          connection.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write("data=" + encodedQuery) }
-                                          val status = connection.responseCode
-                                          val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                                          val response = stream?.bufferedReader()?.use { it.readText() } ?: ""
-                                          if (status in 200..299 && response.isNotBlank() && response.trimStart().startsWith("{")) {
-                                              responseBody = response
-                                              break
-                                          }
-                                          lastError = "Mapová služba HTTP " + status
-                                      } catch (e: Exception) {
-                                          lastError = e.message ?: e.javaClass.simpleName
-                                      } finally {
-                                          connection?.disconnect()
                                       }
+                                      // Continue through remaining points even if one public endpoint is temporarily unavailable.
                                   }
-                                  if (responseBody.isBlank()) throw java.io.IOException("Vyhľadávanie zlyhalo: " + lastError)
-                                  responseBody
+                                  if (successfulQueries == 0) throw java.io.IOException("Vyhľadávanie zlyhalo: " + lastError)
                               }
-                              val elements = org.json.JSONObject(body).optJSONArray("elements") ?: org.json.JSONArray()
-                              for (i in 0 until elements.length()) {
-                                  val element = elements.optJSONObject(i) ?: continue
-                                  val id = element.optString("type") + "/" + element.optString("id")
-                                  if (!uniqueElements.containsKey(id)) uniqueElements[id] = element
+                              if (uniqueElements.isEmpty()) {
+                                  fuelStationsText = "V okolí tejto trasy sa nenašli čerpacie stanice. Skús inú trasu alebo to zopakuj neskôr."
                               }
                               val rows = mutableListOf<Pair<Double, String>>()
                               val routeRoadKm = routeDistanceKm?.toDoubleOrNull()
