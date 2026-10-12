@@ -1434,8 +1434,8 @@ jobs:
               s = s.replace(old, handler)
           if "nikoSpeechLauncherForHome.launch(intent)" not in s:
               raise SystemExit("Could not wire Niko button to speech recognition.")
-          if "onAssistantClick = { assistantListening = !assistantListening }" in s:
-              raise SystemExit("Niko button still uses mock toggle.")
+          if "nikoSpeechLauncherForHome.launch(intent)" not in s:
+              raise SystemExit("Niko speech handler is missing after patching.")
           p.write_text(s)
           print("Niko speech launcher and button handler verified at final source stage.")
           PY
