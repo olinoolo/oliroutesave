@@ -107,7 +107,11 @@ jobs:
               "import java.net.URLEncoder",
           ]
           marker = "package com.oli.routesave.ui.compose\n"
-          s = s.replace(marker, marker + "\n" + "\n".join(imports) + "\n", 1)
+          existing_imports = set(re.findall(r"^import [^\n]+", s, re.M))
+          missing_imports = [imp for imp in imports if imp not in existing_imports]
+          s = s.replace(marker, marker + "\n" + "\n".join(missing_imports) + "\n", 1)
+          if "import android.app.Activity" not in s:
+              s = s.replace(marker, marker + "import android.app.Activity\n", 1)
 
           voice_setup = r"""
               val nikoSpeechLauncherForHome = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -129,10 +133,11 @@ jobs:
                           else ->
                               "Rozumiem, povedal si: $phrase. Zatial viem pomoct s trasou, spotrebou paliva a udajmi o vozidle. Skus povedat pomoc."
                       }
-                      val tts = TextToSpeech(context) { status ->
+                      lateinit var ttsEngine: TextToSpeech
+                      ttsEngine = TextToSpeech(context) { status ->
                           if (status == TextToSpeech.SUCCESS) {
-                              tts.setLanguage(java.util.Locale("sk", "SK"))
-                              tts.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
+                              ttsEngine.setLanguage(java.util.Locale("sk", "SK"))
+                              ttsEngine.speak(answer, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
                           }
                       }
                       Toast.makeText(context, answer, Toast.LENGTH_LONG).show()
@@ -184,8 +189,8 @@ jobs:
           if old_handler not in s:
               raise SystemExit("Could not find Niko voice button handler.")
           s = s.replace(old_handler, wired_handler, 1)
-          s = s.replace("                        vehicleRepository = vehicleRepository,\n                        assistantListening", "                        vehicleRepository = vehicleRepository,\n                        tripHistoryService = tripHistoryService,\n                        assistantListening", 1)
-          s = s.replace("private fun HomeScreen(\n    vehicleRepository: VehicleRepository,", "private fun HomeScreen(\n    vehicleRepository: VehicleRepository,\n    tripHistoryService: TripHistoryService,", 1)
+          # Do not duplicate HomeScreen tripHistoryService wiring; the existing
+          # compatibility patches below own that parameter and its call sites.
           # Locate the calculator wherever it is defined in the Android project.
           project = Path("android-project")
           calculator_file = None
