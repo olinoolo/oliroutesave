@@ -734,6 +734,8 @@ jobs:
           import org.maplibre.android.MapLibre
           import org.maplibre.android.camera.CameraPosition
           import org.maplibre.android.geometry.LatLng
+          import org.maplibre.android.annotations.PolylineOptions
+          import org.maplibre.android.camera.CameraUpdateFactory
           import org.maplibre.android.maps.MapView
           import org.maplibre.android.maps.Style
 
@@ -742,7 +744,7 @@ jobs:
            * The public demo style is for development; production must use licensed map data.
            */
           @Composable
-          fun MapLibreMapView(modifier: Modifier = Modifier) {
+          fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null) {
               val context = LocalContext.current
               val lifecycleOwner = LocalLifecycleOwner.current
               val mapView = remember {
@@ -788,7 +790,25 @@ jobs:
                               .target(LatLng(48.7, 19.7))
                               .zoom(4.2)
                               .build()
-                          map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty"))
+                          map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->
+                              val geometryText = routeGeometry
+                              if (!geometryText.isNullOrBlank()) {
+                                  try {
+                                      val coords = org.json.JSONObject(geometryText).getJSONArray("coordinates")
+                                      val points = ArrayList<LatLng>()
+                                      for (index in 0 until coords.length()) {
+                                          val point = coords.getJSONArray(index)
+                                          points.add(LatLng(point.getDouble(1), point.getDouble(0)))
+                                      }
+                                      if (points.size >= 2) {
+                                          map.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
+                                          val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
+                                          points.forEach { builder.include(it) }
+                                          map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                                      }
+                                  } catch (_: Exception) { }
+                              }
+                          }
                       }
                   }
               )
