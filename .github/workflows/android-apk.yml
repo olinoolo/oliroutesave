@@ -1167,7 +1167,7 @@ jobs:
                           vehicleRepository = vehicleRepository,
                           tripHistoryService = tripHistoryService,''',1)
           # The comparison UI references a four-mode enum; keep it local to this Compose file.
-          s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\\n', '', s, flags=re.M)
+          s = re.sub(r'^import com\\.oli\\.routesave\\.travel\\.TravelMode\n', '', s, flags=re.M)
           if "private enum class TravelMode" not in s:              s = s.replace("package com.oli.routesave.ui.compose\n", "package com.oli.routesave.ui.compose\n\nprivate enum class TravelMode { CAR, TRAIN, BUS, PLANE }\n", 1)
           p.write_text(s)
           print("Applied final Compose syntax, calculator return, HomeScreen wiring, and travel-mode compatibility fixes.")
@@ -1181,7 +1181,7 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           # Remove the temporary local enum; the project already defines the real travel enum.
-          s = re.sub(r'^private enum class TravelMode \\{ CAR, TRAIN, BUS, PLANE \\}\\n', '', s, flags=re.M)
+          s = re.sub(r'^private enum class TravelMode \\{ CAR, TRAIN, BUS, PLANE \\}\n', '', s, flags=re.M)
           package_line = "package com.oli.routesave.ui.compose\n"
           travel_import = "import com.oli.routesave.travel.TravelMode"
           if travel_import not in s:
@@ -1195,7 +1195,7 @@ jobs:
           s = s.replace('routes.getJSONObject(0).getDouble("distance") / 1000.0',
                         'return@withContext routes.getJSONObject(0).getDouble("distance") / 1000.0')
           # Repair a button insertion that was glued to the original distance field.
-          s = s.replace("}OutlinedTextField(", "}\\n            OutlinedTextField(")
+          s = s.replace("}OutlinedTextField(", "}\n            OutlinedTextField(")
           p.write_text(s)
           print("Corrected travel enum import, HomeScreen argument, road-distance return, and distance field boundary.")
           PY
@@ -1501,7 +1501,7 @@ jobs:
                                   val fuel = listOf("diesel" to "nafta", "octane_95" to "benzín 95", "octane_98" to "benzín 98").mapNotNull { (key, label) -> if (tags.optString(key).equals("yes", true)) label else null }
                                   rows.add(Pair(nearestFraction, "• " + name + (brand?.let { " (" + it + ")" } ?: "") + distanceLabel + progressLabel + (if (fuel.isNotEmpty()) " — " + fuel.joinToString(", ") else "")))
                               }
-                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru (vzdialenosti a poradie sú približné; ceny paliva zatiaľ nie sú dostupné):\\n" + rows.sortedBy { it.first }.take(20).joinToString("\\n") { it.second }
+                              fuelStationsText = if (rows.isEmpty()) "V okolí trasy sa nenašli stanice v mapových údajoch." else "Čerpacie stanice pozdĺž orientačného koridoru (vzdialenosti a poradie sú približné; ceny paliva zatiaľ nie sú dostupné):\n" + rows.sortedBy { it.first }.take(20).joinToString("\n") { it.second }
                           } catch (e: Exception) {
                               fuelStationsText = "Stanice sa nepodarilo načítať: " + (e.message ?: "skontroluj internet")
                           } finally {
@@ -1590,7 +1590,7 @@ jobs:
           </layer-list>
           """)
           styles = values / "styles.xml"
-          existing = styles.read_text() if styles.exists() else '<?xml version="1.0" encoding="utf-8"?>\\n<resources>\\n</resources>\\n'
+          existing = styles.read_text() if styles.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
           if "OLIRouteSaveLaunchTheme" not in existing:
               theme = f"""
               <style name="OLIRouteSaveLaunchTheme" parent="{old_theme}">
@@ -1598,7 +1598,7 @@ jobs:
                   <item name="android:windowActionModeOverlay">true</item>
               </style>
               """
-              existing = existing.replace("</resources>", theme + "\\n</resources>")
+              existing = existing.replace("</resources>", theme + "\n</resources>")
               styles.write_text(existing)
           launch_activity.set(android_ns + "theme", "@style/OLIRouteSaveLaunchTheme")
           ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
@@ -1620,7 +1620,7 @@ jobs:
           text = manifest.read_text()
           permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />'
           if 'android.permission.RECORD_AUDIO' not in text:
-              text = re.sub(r'(<manifest[^>]*>)', r'\\1\\n' + permission, text, count=1)
+              text = re.sub(r'(<manifest[^>]*>)', r'\\1\n' + permission, text, count=1)
               manifest.write_text(text)
           source = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           kotlin = source.read_text()
