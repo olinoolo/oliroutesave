@@ -14,6 +14,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     var message by rememberSaveable { mutableStateOf("Zadaj štart a cieľ.") }
     var km by rememberSaveable { mutableStateOf<Double?>(null) }
     var minutes by rememberSaveable { mutableStateOf<Double?>(null) }
+    var routeGeometry by rememberSaveable { mutableStateOf<String?>(null) }
     var permissionGrantedTrigger by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -42,7 +43,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
             item.getString("lon").toDouble() to item.getString("lat").toDouble()
         } finally { c.disconnect() }
     }
-    suspend fun route(a: String, b: String): Pair<Double, Double> = withContext(Dispatchers.IO) {
+    suspend fun route(a: String, b: String): Triple<Double, Double, String> = withContext(Dispatchers.IO) {
         val from = if (a == currentLocationLabel) {
             val fine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val coarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -56,7 +57,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         val to = geocode(b)
         val coordinates = from.first.toString() + "," + from.second + ";" + to.first + "," + to.second
         fun requestRoute(base: String): Pair<Double, Double> {
-            val endpoint = base + coordinates + "?overview=false"
+            val endpoint = base + coordinates + "?overview=full&geometries=geojson"
             val c = (URL(endpoint).openConnection() as java.net.HttpURLConnection)
             c.connectTimeout = 15000; c.readTimeout = 15000
             c.setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android route planner)")
@@ -71,7 +72,8 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                 val routes = json.optJSONArray("routes") ?: throw IllegalStateException("Služba nevrátila žiadne trasy.")
                 if (routes.length() == 0) throw IllegalStateException("Pre tieto miesta sa nenašla cestná trasa.")
                 val r = routes.getJSONObject(0)
-                return (r.getDouble("distance") / 1000.0) to (r.getDouble("duration") / 60.0)
+                val geometry = r.optJSONObject("geometry")?.toString() ?: throw IllegalStateException("Služba nevrátila geometriu trasy.")
+                return Triple(r.getDouble("distance") / 1000.0, r.getDouble("duration") / 60.0, geometry)
             } finally { c.disconnect() }
         }
         try {
@@ -82,8 +84,8 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
-        OutlinedTextField(value = origin, onValueChange = { origin = it; km = null; minutes = null }, label = { Text("Štart (predvolene aktuálna poloha)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = origin, onValueChange = { origin = it; km = null; minutes = null; routeGeometry = null }, label = { Text("Štart (predvolene aktuálna poloha)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null; routeGeometry = null }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         LaunchedEffect(origin, destination, permissionGrantedTrigger) {
             if (origin.isNotBlank() && destination.isNotBlank()) {
                 kotlinx.coroutines.delay(700)
@@ -99,6 +101,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                         val result = route(origin.trim(), destination.trim())
                         km = result.first
                         minutes = result.second
+                        routeGeometry = result.third
                         message = "Vzdialenosť vypočítaná podľa cestných údajov."
                         context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).apply()
                     } catch (e: Exception) {
@@ -115,7 +118,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                 message = "Zadaj štart a cieľ."
             }
         }
-        MapLibreMapView(Modifier.fillMaxWidth().height(220.dp))
+        MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("Výsledok trasy", fontWeight = FontWeight.Bold); if (km != null && minutes != null) { val totalMinutes = (minutes ?: 0.0).toInt().coerceAtLeast(0); Text(String.format(Locale.getDefault(), "%.1f km • približne %d h %02d min", km ?: 0.0, totalMinutes / 60, totalMinutes % 60), fontSize = 19.sp, fontWeight = FontWeight.Bold); Text(origin + " → " + destination) } else { Text("Skutočné kilometre sa zobrazia po výpočte.") }; Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) } }
         Button(onClick = onStartNavigation, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("Spustiť navigáciu") }
     }
