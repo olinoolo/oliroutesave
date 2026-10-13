@@ -106,6 +106,11 @@ jobs:
               "import org.json.JSONObject",
               "import java.net.URL",
               "import java.net.URLEncoder",
+              "import android.speech.SpeechRecognizer",
+              "import android.speech.RecognitionListener",
+              "import android.os.Bundle",
+              "import android.os.Handler",
+              "import android.os.Looper",
           ]
           marker = "package com.oli.routesave.ui.compose\n"
           existing_imports = set(re.findall(r"^import [^\n]+", s, re.M))
