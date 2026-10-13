@@ -1585,7 +1585,7 @@ jobs:
           <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
               <item android:drawable="@android:color/background_dark" />
               <item android:gravity="center">
-                  <bitmap android:src="@drawable-nodpi/oli_brand_logo" android:gravity="center" />
+                  <bitmap android:src="@drawable/oli_brand_logo" android:gravity="center" />
               </item>
           </layer-list>
           """)
