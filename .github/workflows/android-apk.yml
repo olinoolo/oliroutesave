@@ -1770,6 +1770,20 @@ jobs:
           cd android-project
           gradle --no-daemon :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
 
+      - name: Verify APK has a separate test package ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android-project/app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT" || { echo "Android aapt tool not found"; exit 1; }
+          PACKAGE="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)"
+          echo "Built APK package ID: $PACKAGE"
+          case "$PACKAGE" in
+            *.test) echo "Verified: test APK uses a separate package ID." ;;
+            *) echo "ERROR: APK package ID does not end in .test; refusing to upload an unverified APK."; exit 1 ;;
+          esac
+
       - name: Run unit tests
         shell: bash
         continue-on-error: true
