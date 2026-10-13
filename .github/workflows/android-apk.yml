@@ -238,7 +238,28 @@ jobs:
                       Toast.makeText(context, "Povoľ mikrofón pre OLI RouteSave v nastaveniach telefónu.", Toast.LENGTH_LONG).show()
                   }
               }
-              // Speech launcher is called directly from the HomeScreen callback below.
+              LaunchedEffect(nikoListenAgain.value, nikoHandsFreeMode.value, assistantListening) {
+                  if (nikoListenAgain.value && nikoHandsFreeMode.value && !assistantListening) {
+                      nikoListenAgain.value = false
+                      delay(400)
+                      val nextSpeechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
+                          putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
+                          putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Pokračuj v rozhovore.")
+                          putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                      }
+                      try {
+                          assistantListening = true
+                          nikoSpeechLauncherForHome.launch(nextSpeechIntent)
+                      } catch (e: Exception) {
+                          assistantListening = false
+                          nikoHandsFreeMode.value = false
+                          Toast.makeText(context, "Nepodarilo sa pokračovať v počúvaní. Spusť hlasový režim znova.", Toast.LENGTH_LONG).show()
+                      }
+                  }
+              }
+              // This loops conversation turns only while the app stays open; wake-word/background listening is a separate step.
 
           """
           app_marker = "fun RouteSaveComposeApp()"
