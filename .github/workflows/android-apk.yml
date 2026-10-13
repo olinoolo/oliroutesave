@@ -123,6 +123,7 @@ jobs:
               val nikoTtsReady = remember { mutableStateOf(false) }
               val nikoPendingSpeech = remember { mutableStateOf("") }
               val nikoHandsFreeMode = remember { mutableStateOf(false) }
+              val nikoWelcomeSpoken = remember { mutableStateOf(false) }
               val nikoListenAgain = remember { mutableStateOf(false) }
               val nikoTtsStatus = remember { mutableStateOf("Pripravujem hlas…") }
               val nikoTtsEngine = remember(context) {
@@ -280,6 +281,22 @@ jobs:
                       }
                   }
               }
+              // Speak the OLI welcome once after the home screen's text-to-speech engine is ready.
+              LaunchedEffect(nikoTtsReady.value) {
+                  if (nikoTtsReady.value && !nikoWelcomeSpoken.value) {
+                      nikoWelcomeSpoken.value = true
+                      val welcomeLanguage = nikoTtsEngine.setLanguage(java.util.Locale("sk", "SK"))
+                      if (welcomeLanguage != TextToSpeech.LANG_MISSING_DATA && welcomeLanguage != TextToSpeech.LANG_NOT_SUPPORTED) {
+                          nikoTtsEngine.setSpeechRate(0.92f)
+                          nikoTtsEngine.setPitch(0.95f)
+                          nikoTtsEngine.speak("Dobrý deň, ako ti môžem pomôcť?", TextToSpeech.QUEUE_ADD, null, "oli-welcome")
+                          nikoTtsStatus.value = "OLI vás víta"
+                      } else {
+                          nikoTtsStatus.value = "Chýba slovenský hlas v telefóne"
+                      }
+                  }
+              }
+
               // This loops conversation turns only while the app stays open; wake-word/background listening is a separate step.
 
           """
