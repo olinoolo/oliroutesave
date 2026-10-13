@@ -115,7 +115,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                 message = "Zadaj štart a cieľ."
             }
         }
-        MapPlaceholder("Náhľad mapy", Modifier.fillMaxWidth().height(220.dp))
+        MapLibreMapView(Modifier.fillMaxWidth().height(220.dp))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("Výsledok trasy", fontWeight = FontWeight.Bold); if (km != null && minutes != null) { val totalMinutes = (minutes ?: 0.0).toInt().coerceAtLeast(0); Text(String.format(Locale.getDefault(), "%.1f km • približne %d h %02d min", km ?: 0.0, totalMinutes / 60, totalMinutes % 60), fontSize = 19.sp, fontWeight = FontWeight.Bold); Text(origin + " → " + destination) } else { Text("Skutočné kilometre sa zobrazia po výpočte.") }; Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) } }
         Button(onClick = onStartNavigation, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("Spustiť navigáciu") }
     }
