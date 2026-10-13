@@ -1711,6 +1711,37 @@ jobs:
           print("Final demo-wording cleanup:", ", ".join(changed) if changed else "no matching wording")
           PY
 
+      - name: Configure persistent APK signing when repository secrets are available
+        if: ${{ secrets.OLI_KEYSTORE_BASE64 != '' && secrets.OLI_KEYSTORE_PASSWORD != '' && secrets.OLI_KEY_ALIAS != '' && secrets.OLI_KEY_PASSWORD != '' }}
+        env:
+          OLI_KEYSTORE_BASE64: ${{ secrets.OLI_KEYSTORE_BASE64 }}
+          OLI_KEYSTORE_PASSWORD: ${{ secrets.OLI_KEYSTORE_PASSWORD }}
+          OLI_KEY_ALIAS: ${{ secrets.OLI_KEY_ALIAS }}
+          OLI_KEY_PASSWORD: ${{ secrets.OLI_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$OLI_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/oli-routesave-signing.jks"
+          cat >> android-project/app/build.gradle.kts <<'GRADLE'
+
+          // Use the same protected upload key for every future signed test APK.
+          android {
+              signingConfigs {
+                  create("oliPersistent") {
+                      storeFile = file(System.getenv("RUNNER_TEMP") + "/oli-routesave-signing.jks")
+                      storePassword = System.getenv("OLI_KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("OLI_KEY_ALIAS")
+                      keyPassword = System.getenv("OLI_KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("oliPersistent")
+                  }
+              }
+          }
+          GRADLE
+          echo "Persistent signing configuration added (key material stays outside the repository)."
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
