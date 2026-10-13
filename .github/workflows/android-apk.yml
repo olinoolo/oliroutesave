@@ -275,7 +275,15 @@ jobs:
           s = s[:insert_at] + "\n" + voice_setup + s[insert_at:]
           old_handler = "onAssistantClick = { assistantListening = !assistantListening }"
           wired_handler = """onAssistantClick = {
-                              nikoMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                              if (nikoHandsFreeMode.value) {
+                                  nikoHandsFreeMode.value = false
+                                  nikoListenAgain.value = false
+                                  assistantListening = false
+                                  Toast.makeText(context, "Niko: hlasový režim vypnutý.", Toast.LENGTH_SHORT).show()
+                              } else {
+                                  nikoHandsFreeMode.value = true
+                                  nikoMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                              }
                           }"""
           s = s.replace("onAssistantClick = { startNikoSpeech() }", old_handler)
           if old_handler not in s:
