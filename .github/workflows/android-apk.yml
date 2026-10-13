@@ -200,8 +200,8 @@ jobs:
                                   val numbers = Regex("\\d+").findAll(normalized).map { it.value.toLongOrNull() }.filterNotNull().take(2).toList()
                                   when {
                                       numbers.size < 2 -> "Povedz mi, prosim, priklad este raz."
-                                      normalized.contains("delen") || normalized.contains("delit") -> if (numbers[1] == 0L) "Nulou sa delit neda." else "Vysledok je ${numbers[0].toDouble() / numbers[1].toDouble()}."
-                                      normalized.contains("krat") || normalized.contains("nasob") -> "Vysledok je ${numbers[0] * numbers[1]}."
+                                      listOf("delen", "delit", "delene", "deleno", "delenie").any { normalized.contains(it) } -> if (numbers[1] == 0L) "Nulou sa delit neda." else "Vysledok je ${numbers[0].toDouble() / numbers[1].toDouble()}."
+                                      listOf("krat", "nasob", "nasobenie", "vynasob", "kratit").any { normalized.contains(it) } || Regex("\\b[x×]\\b").containsMatchIn(normalized) -> "Vysledok je ${numbers[0] * numbers[1]}."
                                       normalized.contains("plus") || normalized.contains("scitaj") || normalized.contains("spocitaj") -> "Vysledok je ${numbers[0] + numbers[1]}."
                                       normalized.contains("minus") || normalized.contains("odcitaj") -> "Vysledok je ${numbers[0] - numbers[1]}."
                                       else -> "Rozumiem. Ak chces vypocitat priklad, povedz napríklad: kolko je 150 deleno 3."
