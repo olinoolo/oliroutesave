@@ -1712,7 +1712,6 @@ jobs:
           PY
 
       - name: Configure persistent APK signing when repository secrets are available
-        if: ${{ secrets.OLI_KEYSTORE_BASE64 != '' && secrets.OLI_KEYSTORE_PASSWORD != '' && secrets.OLI_KEY_ALIAS != '' && secrets.OLI_KEY_PASSWORD != '' }}
         env:
           OLI_KEYSTORE_BASE64: ${{ secrets.OLI_KEYSTORE_BASE64 }}
           OLI_KEYSTORE_PASSWORD: ${{ secrets.OLI_KEYSTORE_PASSWORD }}
@@ -1720,6 +1719,10 @@ jobs:
           OLI_KEY_PASSWORD: ${{ secrets.OLI_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          if [ -z "${OLI_KEYSTORE_BASE64:-}" ] || [ -z "${OLI_KEYSTORE_PASSWORD:-}" ] || [ -z "${OLI_KEY_ALIAS:-}" ] || [ -z "${OLI_KEY_PASSWORD:-}" ]; then
+            echo "Persistent signing secrets are not configured; keeping the normal debug signing for this build."
+            exit 0
+          fi
           printf '%s' "$OLI_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/oli-routesave-signing.jks"
           cat >> android-project/app/build.gradle.kts <<'GRADLE'
 
