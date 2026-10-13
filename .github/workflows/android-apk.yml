@@ -146,7 +146,7 @@ jobs:
                           nikoTtsEngine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                               override fun onStart(utteranceId: String?) {}
                               override fun onDone(utteranceId: String?) {
-                                  context.mainExecutor.execute {
+                                  android.os.Handler(android.os.Looper.getMainLooper()).post {
                                       if (nikoHandsFreeMode.value) nikoListenAgain.value = true
                                   }
                               }
