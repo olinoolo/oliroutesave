@@ -181,6 +181,8 @@ jobs:
                           .replace(Regex("\\b(osem)\\b"), "8")
                           .replace(Regex("\\b(devat)\\b"), "9")
                       val answer = when {
+                          normalized.trim().matches(Regex("^(niko|niko prosim|hej niko|hal[oó] niko)$")) ->
+                              "Som tu. Hovor, počúvam ťa."
                           listOf("pomoc", "co vies", "co dokazes", "prikazy").any { normalized.contains(it) } ->
                               "Som Niko, tvoj hlasovy asistent. Mozes sa ma opytat na trasu, spotrebu paliva alebo udaje o vozidle."
                           listOf("palivo", "spotreba", "cena cesty", "naklady").any { normalized.contains(it) } ->
