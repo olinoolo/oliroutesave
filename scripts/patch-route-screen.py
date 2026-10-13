@@ -19,6 +19,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     val scope = rememberCoroutineScope()
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            if (origin.isBlank()) origin = currentLocationLabel
             message = "Poloha povolená. Automaticky počítam trasu…"
             permissionGrantedTrigger++
         } else {
