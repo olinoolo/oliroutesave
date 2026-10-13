@@ -1711,19 +1711,23 @@ jobs:
           print("Final demo-wording cleanup:", ", ".join(changed) if changed else "no matching wording")
           PY
 
-      - name: Give test APK a separate package ID to avoid install-signature conflicts
+      - name: Give test APK a unique package ID for this build
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import os
+          suffix = ".test" + os.environ["GITHUB_RUN_NUMBER"]
           p = Path("android-project/app/build.gradle.kts")
           lines = p.read_text().splitlines()
           # applicationIdSuffix belongs in a build type, not defaultConfig.
           lines = [line for line in lines if "applicationIdSuffix" not in line]
           for index, line in enumerate(lines):
               if line.strip() == 'getByName("debug") {':
-                  lines.insert(index + 1, '            applicationIdSuffix = ".test177"')
+                  lines.insert(index + 1, f'            applicationIdSuffix = "{suffix}"')
                   p.write_text("\n".join(lines) + "\n")
-                  print("Test APK package suffix set to .test177 in debug build type.")
+                  print(f"Test APK package suffix set to {suffix} in debug build type.")
                   break
           else:
               raise SystemExit('debug build type not found; refusing to change package ID blindly.')
@@ -1785,9 +1789,10 @@ jobs:
             echo "ERROR: Could not read package ID from APK badging output."
             exit 1
           fi
+          EXPECTED_SUFFIX=".test${GITHUB_RUN_NUMBER}"
           case "$PACKAGE" in
-            *.test177) echo "Verified: APK uses the unique .test177 package ID." ;;
-            *) echo "ERROR: APK package ID does not end in .test177; refusing to upload an unverified APK."; exit 1 ;;
+            *"$EXPECTED_SUFFIX") echo "Verified: APK uses unique package suffix $EXPECTED_SUFFIX." ;;
+            *) echo "ERROR: APK package ID does not end in $EXPECTED_SUFFIX; refusing to upload an unverified APK."; exit 1 ;;
           esac
 
       - name: Run unit tests
