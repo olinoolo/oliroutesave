@@ -14,7 +14,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     var message by rememberSaveable { mutableStateOf("Zadaj štart a cieľ.") }
     var km by rememberSaveable { mutableStateOf<Double?>(null) }
     var minutes by rememberSaveable { mutableStateOf<Double?>(null) }
-    var permissionGrantedTrigger by rememberSaveable { mutableIntStateOf(0) }
+    var permissionGrantedTrigger by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
