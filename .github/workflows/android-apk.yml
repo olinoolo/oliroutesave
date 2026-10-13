@@ -232,7 +232,7 @@ jobs:
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
                           putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Povedz niečo po slovensky.")
                           putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                          putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                          // Allow network speech recognition when offline Slovak data is unavailable.
                       }
                       try {
                           assistantListening = true
@@ -256,7 +256,7 @@ jobs:
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "sk-SK")
                           putExtra(RecognizerIntent.EXTRA_PROMPT, "Niko počúva. Pokračuj v rozhovore.")
                           putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                          putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                          // Allow network speech recognition when offline Slovak data is unavailable.
                       }
                       try {
                           assistantListening = true
