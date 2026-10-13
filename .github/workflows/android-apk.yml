@@ -1079,11 +1079,12 @@ jobs:
         run: |
           cat >> android-project/app/build.gradle.kts <<'GRADLE'
 
-          // Installable side-by-side with the original app for safe testing.
+          // Keep one stable test package ID so future test APKs target the same app.
+          // A consistent signing key is still required for in-place updates.
           android {
               buildTypes {
                   getByName("debug") {
-                      applicationIdSuffix = ".test${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
+                      applicationIdSuffix = ".test"
                   }
               }
           }
