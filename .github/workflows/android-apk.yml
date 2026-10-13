@@ -788,7 +788,7 @@ jobs:
                               .target(LatLng(48.7, 19.7))
                               .zoom(4.2)
                               .build()
-                          map.setStyle(Style.Builder().fromUri("https://demotiles.maplibre.org/style.json"))
+                          map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty"))
                       }
                   }
               )
