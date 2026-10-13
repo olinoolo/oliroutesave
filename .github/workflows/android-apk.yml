@@ -1717,16 +1717,16 @@ jobs:
           from pathlib import Path
           p = Path("android-project/app/build.gradle.kts")
           lines = p.read_text().splitlines()
-          if any("applicationIdSuffix" in line for line in lines):
-              lines = [line for line in lines if "applicationIdSuffix" not in line]
+          # applicationIdSuffix belongs in a build type, not defaultConfig.
+          lines = [line for line in lines if "applicationIdSuffix" not in line]
           for index, line in enumerate(lines):
-              if line.strip() == "defaultConfig {":
-                  lines.insert(index + 1, '        applicationIdSuffix = ".test"')
+              if line.strip() == 'getByName("debug") {':
+                  lines.insert(index + 1, '            applicationIdSuffix = ".test"')
                   p.write_text("\n".join(lines) + "\n")
-                  print("Test APK package suffix set to .test.")
+                  print("Test APK package suffix set to .test in debug build type.")
                   break
           else:
-              raise SystemExit("defaultConfig block not found; refusing to change package ID blindly.")
+              raise SystemExit('debug build type not found; refusing to change package ID blindly.')
           PY
 
       - name: Configure persistent APK signing when repository secrets are available
