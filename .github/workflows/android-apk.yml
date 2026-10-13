@@ -936,6 +936,33 @@ jobs:
           print("Added MapLibre map view and removed hard-coded route distance/time from the route planning screen.")
           PY
 
+      - name: Show the interactive map on the home screen
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          source = p.read_text()
+          start = source.find("private fun HomeScreen(")
+          if start < 0:
+              raise SystemExit("HomeScreen function not found; leaving source unchanged.")
+          end = source.find("\n@Composable", start + 1)
+          if end < 0:
+              end = len(source)
+          block = source[start:end]
+          if "MapLibreMapView(" in block:
+              print("Home screen already uses the interactive map.")
+          else:
+              matches = list(re.finditer(r'MapPlaceholder\([^\n]*\)', block))
+              if not matches:
+                  raise SystemExit("No home map placeholder found; leaving source unchanged.")
+              match = matches[0]
+              block = block[:match.start()] + 'MapLibreMapView(Modifier.fillMaxWidth().height(220.dp))' + block[match.end():]
+              source = source[:start] + block + source[end:]
+              p.write_text(source)
+              print("Connected the first interactive MapLibre map to HomeScreen.")
+          PY
+
       - name: Apply OLI RouteSave launcher logo
         run: |
           python3 -m pip install --quiet pillow
