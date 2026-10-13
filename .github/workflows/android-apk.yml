@@ -226,6 +226,12 @@ jobs:
               }
               val nikoMicPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                   if (granted) {
+                      val recognitionIntentAvailable = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(context.packageManager) != null
+                      if (!recognitionIntentAvailable) {
+                          assistantListening = false
+                          nikoHandsFreeMode.value = false
+                          Toast.makeText(context, "V telefóne nie je dostupná služba rozpoznávania reči. Aktualizuj alebo povoľ Google Speech Services.", Toast.LENGTH_LONG).show()
+                      } else {
                       val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
@@ -240,6 +246,7 @@ jobs:
                       } catch (e: Exception) {
                           assistantListening = false
                           Toast.makeText(context, "Rozpoznávanie reči nie je v telefóne dostupné.", Toast.LENGTH_LONG).show()
+                      }
                       }
                   } else {
                       assistantListening = false
