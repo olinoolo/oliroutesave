@@ -1544,7 +1544,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           import xml.etree.ElementTree as ET
 
           app = Path("android-project/app/src/main")
@@ -1554,18 +1553,29 @@ jobs:
               if not matches:
                   raise SystemExit("AndroidManifest.xml not found")
               manifest = matches[0]
-          root = ET.parse(manifest).getroot()
+          tree = ET.parse(manifest)
+          root = tree.getroot()
           android_ns = "{http://schemas.android.com/apk/res/android}"
-          activity = None
-          for node in root.iter():
-              if node.tag.endswith("activity") and node.attrib.get(android_ns + "name", "").endswith("MainActivity"):
-                  activity = node
+          app_node = root.find("application")
+          if app_node is None:
+              raise SystemExit("Manifest application element not found")
+          launch_activity = None
+          for node in app_node.iter():
+              if not node.tag.endswith("activity") and not node.tag.endswith("activity-alias"):
+                  continue
+              for intent in node.findall("intent-filter"):
+                  actions = {e.attrib.get(android_ns + "name") for e in intent.findall("action")}
+                  categories = {e.attrib.get(android_ns + "name") for e in intent.findall("category")}
+                  if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
+                      launch_activity = node
+                      break
+              if launch_activity is not None:
                   break
-          if activity is None:
-              raise SystemExit("MainActivity not found; cannot safely apply launch theme")
-          old_theme = activity.attrib.get(android_ns + "theme")
+          if launch_activity is None:
+              raise SystemExit("Launcher activity with MAIN/LAUNCHER intent filter not found")
+          old_theme = launch_activity.attrib.get(android_ns + "theme") or app_node.attrib.get(android_ns + "theme")
           if not old_theme:
-              raise SystemExit("MainActivity has no explicit theme; refusing to guess its parent theme")
+              raise SystemExit("No existing theme found on launcher activity or application")
           res = app / "res"
           values = res / "values"
           values.mkdir(parents=True, exist_ok=True)
@@ -1580,7 +1590,7 @@ jobs:
           </layer-list>
           """)
           styles = values / "styles.xml"
-          existing = styles.read_text() if styles.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+          existing = styles.read_text() if styles.exists() else '<?xml version="1.0" encoding="utf-8"?>\\n<resources>\\n</resources>\\n'
           if "OLIRouteSaveLaunchTheme" not in existing:
               theme = f"""
               <style name="OLIRouteSaveLaunchTheme" parent="{old_theme}">
@@ -1588,12 +1598,12 @@ jobs:
                   <item name="android:windowActionModeOverlay">true</item>
               </style>
               """
-              existing = existing.replace("</resources>", theme + "\n</resources>")
+              existing = existing.replace("</resources>", theme + "\\n</resources>")
               styles.write_text(existing)
-          activity.set(android_ns + "theme", "@style/OLIRouteSaveLaunchTheme")
+          launch_activity.set(android_ns + "theme", "@style/OLIRouteSaveLaunchTheme")
           ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
-          ET.ElementTree(root).write(manifest, encoding="utf-8", xml_declaration=True)
-          print("Applied branded OLI launch window using official logo and dark background.")
+          tree.write(manifest, encoding="utf-8", xml_declaration=True)
+          print("Applied branded OLI launch window to detected launcher activity.")
           PY
 
       - name: Enable real microphone permission for Niko
