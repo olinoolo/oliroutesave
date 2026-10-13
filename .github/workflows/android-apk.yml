@@ -1721,9 +1721,9 @@ jobs:
           lines = [line for line in lines if "applicationIdSuffix" not in line]
           for index, line in enumerate(lines):
               if line.strip() == 'getByName("debug") {':
-                  lines.insert(index + 1, '            applicationIdSuffix = ".test"')
+                  lines.insert(index + 1, '            applicationIdSuffix = ".test177"')
                   p.write_text("\n".join(lines) + "\n")
-                  print("Test APK package suffix set to .test in debug build type.")
+                  print("Test APK package suffix set to .test177 in debug build type.")
                   break
           else:
               raise SystemExit('debug build type not found; refusing to change package ID blindly.')
@@ -1786,8 +1786,8 @@ jobs:
             exit 1
           fi
           case "$PACKAGE" in
-            *.test175) echo "Verified: APK uses the unique .test175 package ID." ;;
-            *) echo "ERROR: APK package ID does not end in .test175; refusing to upload an unverified APK."; exit 1 ;;
+            *.test177) echo "Verified: APK uses the unique .test177 package ID." ;;
+            *) echo "ERROR: APK package ID does not end in .test177; refusing to upload an unverified APK."; exit 1 ;;
           esac
 
       - name: Run unit tests
