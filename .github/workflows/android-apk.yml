@@ -1111,7 +1111,7 @@ jobs:
           android {
               buildTypes {
                   getByName("debug") {
-                      applicationIdSuffix = ".test"
+                      applicationIdSuffix = ".test175"
                   }
               }
           }
@@ -1780,8 +1780,8 @@ jobs:
           PACKAGE="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)"
           echo "Built APK package ID: $PACKAGE"
           case "$PACKAGE" in
-            *.test) echo "Verified: test APK uses a separate package ID." ;;
-            *) echo "ERROR: APK package ID does not end in .test; refusing to upload an unverified APK."; exit 1 ;;
+            *.test175) echo "Verified: APK uses the unique .test175 package ID." ;;
+            *) echo "ERROR: APK package ID does not end in .test175; refusing to upload an unverified APK."; exit 1 ;;
           esac
 
       - name: Run unit tests
