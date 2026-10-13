@@ -1777,8 +1777,14 @@ jobs:
           APK="android-project/app/build/outputs/apk/debug/app-debug.apk"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT" || { echo "Android aapt tool not found"; exit 1; }
-          PACKAGE="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)"
-          echo "Built APK package ID: $PACKAGE"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | head -n 1
+          PACKAGE="$(printf '%s\n' "$BADGING" | awk -F"'" '/^package: name=/{print $2; exit}')"
+          echo "Built APK package ID: ${PACKAGE:-<EMPTY>}"
+          if [ -z "$PACKAGE" ]; then
+            echo "ERROR: Could not read package ID from APK badging output."
+            exit 1
+          fi
           case "$PACKAGE" in
             *.test175) echo "Verified: APK uses the unique .test175 package ID." ;;
             *) echo "ERROR: APK package ID does not end in .test175; refusing to upload an unverified APK."; exit 1 ;;
