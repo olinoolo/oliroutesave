@@ -14,11 +14,13 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     var message by rememberSaveable { mutableStateOf("Zadaj štart a cieľ.") }
     var km by rememberSaveable { mutableStateOf<Double?>(null) }
     var minutes by rememberSaveable { mutableStateOf<Double?>(null) }
+    var permissionGrantedTrigger by rememberSaveable { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            message = "Poloha povolená. Stlač ešte raz výpočet trasy."
+            message = "Poloha povolená. Automaticky počítam trasu…"
+            permissionGrantedTrigger++
         } else {
             message = "Prístup k polohe nebol povolený. Zadaj štart ručne."
             origin = ""
@@ -81,7 +83,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(value = origin, onValueChange = { origin = it; km = null; minutes = null }, label = { Text("Štart (predvolene aktuálna poloha)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        LaunchedEffect(origin, destination) {
+        LaunchedEffect(origin, destination, permissionGrantedTrigger) {
             if (origin.isNotBlank() && destination.isNotBlank()) {
                 kotlinx.coroutines.delay(700)
                 val fine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
