@@ -143,6 +143,18 @@ jobs:
                       } else {
                           nikoTtsEngine.setSpeechRate(0.92f)
                           nikoTtsEngine.setPitch(0.82f)
+                          nikoTtsEngine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                              override fun onStart(utteranceId: String?) {}
+                              override fun onDone(utteranceId: String?) {
+                                  context.mainExecutor.execute {
+                                      if (nikoHandsFreeMode.value) nikoListenAgain.value = true
+                                  }
+                              }
+                              override fun onError(utteranceId: String?) {
+                                  context.mainExecutor.execute { nikoListenAgain.value = false }
+                              }
+                          })
+                          nikoListenAgain.value = false
                           val result = nikoTtsEngine.speak(pending, TextToSpeech.QUEUE_FLUSH, null, "niko-response")
                           nikoTtsStatus.value = if (result == TextToSpeech.SUCCESS) "Niko hovorí…" else "Hlas sa nepodarilo spustiť"
                           if (result != TextToSpeech.SUCCESS) {
