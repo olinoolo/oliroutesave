@@ -117,6 +117,8 @@ jobs:
           voice_setup = r"""
               val nikoTtsReady = remember { mutableStateOf(false) }
               val nikoPendingSpeech = remember { mutableStateOf("") }
+              val nikoHandsFreeMode = remember { mutableStateOf(false) }
+              val nikoListenAgain = remember { mutableStateOf(false) }
               val nikoTtsStatus = remember { mutableStateOf("Pripravujem hlas…") }
               val nikoTtsEngine = remember(context) {
                   TextToSpeech(context.applicationContext) { status ->
