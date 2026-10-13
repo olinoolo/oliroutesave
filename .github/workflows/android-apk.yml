@@ -1715,84 +1715,18 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path("android-project/app/build.gradle.kts")
-          s = p.read_text()
-          # Put the suffix inside the existing defaultConfig block, only if not already present.
-          match = re.search(r'(?m)^(\\s*)defaultConfig\\s*\\{', s)
-          if not match:
-              raise SystemExit("defaultConfig block not found; refusing to alter package ID blindly.")
-          start = match.end()
-          depth = 1
-          i = start
-          while i < len(s) and depth:
-              if s[i] == "{": depth += 1
-              elif s[i] == "}": depth -= 1
-              i += 1
-          if depth:
-              raise SystemExit("Could not find end of defaultConfig block.")
-          block = s[start:i-1]
-          if re.search(r'(?m)^\\s*applicationIdSuffix\\s*=', block):
-              block = re.sub(r'(?m)^(\\s*)applicationIdSuffix\\s*=.*        env:
-          OLI_KEYSTORE_BASE64: ${{ secrets.OLI_KEYSTORE_BASE64 }}
-          OLI_KEYSTORE_PASSWORD: ${{ secrets.OLI_KEYSTORE_PASSWORD }}
-          OLI_KEY_ALIAS: ${{ secrets.OLI_KEY_ALIAS }}
-          OLI_KEY_PASSWORD: ${{ secrets.OLI_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "${OLI_KEYSTORE_BASE64:-}" ] || [ -z "${OLI_KEYSTORE_PASSWORD:-}" ] || [ -z "${OLI_KEY_ALIAS:-}" ] || [ -z "${OLI_KEY_PASSWORD:-}" ]; then
-            echo "Persistent signing secrets are not configured; keeping the normal debug signing for this build."
-            exit 0
-          fi
-          printf '%s' "$OLI_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/oli-routesave-signing.jks"
-          cat >> android-project/app/build.gradle.kts <<'GRADLE'
-
-          // Use the same protected upload key for every future signed test APK.
-          android {
-              signingConfigs {
-                  create("oliPersistent") {
-                      storeFile = file(System.getenv("RUNNER_TEMP") + "/oli-routesave-signing.jks")
-                      storePassword = System.getenv("OLI_KEYSTORE_PASSWORD")
-                      keyAlias = System.getenv("OLI_KEY_ALIAS")
-                      keyPassword = System.getenv("OLI_KEY_PASSWORD")
-                  }
-              }
-              buildTypes {
-                  getByName("debug") {
-                      signingConfig = signingConfigs.getByName("oliPersistent")
-                  }
-              }
-          }
-          GRADLE
-          echo "Persistent signing configuration added (key material stays outside the repository)."
-
-      - name: Build debug APK and save build log
-        shell: bash
-        run: |
-          set -o pipefail
-          cd android-project
-          gradle --no-daemon :app:lintDebug :app:assembleDebug 2>&1 | tee ../build-log.txt
-
-      - name: Run unit tests
-        shell: bash
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cd android-project
-          gradle --no-daemon :app:testDebugUnitTest 2>&1 | tee ../unit-test-log.txt
-
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OLI-RouteSave-debug-APK
-          path: android-project/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error, r'\\1applicationIdSuffix = ".test"', block, count=1)
+          lines = p.read_text().splitlines()
+          if any("applicationIdSuffix" in line for line in lines):
+              lines = [line for line in lines if "applicationIdSuffix" not in line]
+          for index, line in enumerate(lines):
+              if line.strip() == "defaultConfig {":
+                  lines.insert(index + 1, '        applicationIdSuffix = ".test"')
+                  p.write_text("\n".join(lines) + "\n")
+                  print("Test APK package suffix set to .test.")
+                  break
           else:
-              block = '\\n    applicationIdSuffix = ".test"\\n' + block
-          s = s[:start] + block + s[i-1:]
-          p.write_text(s)
-          print("Test APK package suffix set to .test so it can install alongside the existing app.")
+              raise SystemExit("defaultConfig block not found; refusing to change package ID blindly.")
           PY
 
       - name: Configure persistent APK signing when repository secrets are available
