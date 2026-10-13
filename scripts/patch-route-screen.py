@@ -51,20 +51,31 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
             last.longitude to last.latitude
         } else geocode(a)
         val to = geocode(b)
-        val url = "https://router.project-osrm.org/route/v1/driving/" + from.first + "," + from.second + ";" + to.first + "," + to.second + "?overview=false"
-        val c = (URL(url).openConnection() as java.net.HttpURLConnection); c.connectTimeout = 15000; c.readTimeout = 15000
+        val coordinates = from.first.toString() + "," + from.second + ";" + to.first + "," + to.second
+        fun requestRoute(base: String): Pair<Double, Double> {
+            val endpoint = base + coordinates + "?overview=false"
+            val c = (URL(endpoint).openConnection() as java.net.HttpURLConnection)
+            c.connectTimeout = 15000; c.readTimeout = 15000
+            c.setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android route planner)")
+            c.setRequestProperty("Accept", "application/json")
+            try {
+                val status = c.responseCode
+                val stream = if (status in 200..299) c.inputStream else c.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (status !in 200..299) throw java.io.IOException("Služba cestnej trasy odpovedala HTTP " + status + ".")
+                val json = org.json.JSONObject(body)
+                if (json.optString("code") != "Ok") throw IllegalStateException("Služba nenašla cestnú trasu (" + json.optString("code") + ").")
+                val routes = json.optJSONArray("routes") ?: throw IllegalStateException("Služba nevrátila žiadne trasy.")
+                if (routes.length() == 0) throw IllegalStateException("Pre tieto miesta sa nenašla cestná trasa.")
+                val r = routes.getJSONObject(0)
+                return (r.getDouble("distance") / 1000.0) to (r.getDouble("duration") / 60.0)
+            } finally { c.disconnect() }
+        }
         try {
-            val status = c.responseCode
-            val stream = if (status in 200..299) c.inputStream else c.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
-            if (status !in 200..299) throw java.io.IOException("Služba cestnej trasy odpovedala HTTP " + status + ". Skús to neskôr.")
-            val json = org.json.JSONObject(body)
-            if (json.optString("code") != "Ok") throw IllegalStateException("Služba nenašla cestnú trasu (" + json.optString("code") + ").")
-            val routes = json.optJSONArray("routes") ?: throw IllegalStateException("Služba nevrátila žiadne trasy.")
-            if (routes.length() == 0) throw IllegalStateException("Pre tieto miesta sa nenašla cestná trasa.")
-            val r = routes.getJSONObject(0)
-            (r.getDouble("distance") / 1000.0) to (r.getDouble("duration") / 60.0)
-        } finally { c.disconnect() }
+            requestRoute("https://router.project-osrm.org/route/v1/driving/")
+        } catch (first: java.io.IOException) {
+            requestRoute("https://routing.openstreetmap.de/routed-car/route/v1/driving/")
+        }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
