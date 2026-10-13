@@ -1597,7 +1597,6 @@ jobs:
                   <item name="android:windowBackground">@drawable/oli_launch_background</item>
                   <item name="android:windowSplashScreenBackground">#06172B</item>
                   <item name="android:windowSplashScreenAnimatedIcon">@drawable/oli_brand_logo</item>
-                  <item name="android:postSplashScreenTheme">{old_theme}</item>
                   <item name="android:windowActionModeOverlay">true</item>
               </style>
               """
