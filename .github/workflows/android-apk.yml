@@ -238,10 +238,10 @@ jobs:
                       Toast.makeText(context, "Povoľ mikrofón pre OLI RouteSave v nastaveniach telefónu.", Toast.LENGTH_LONG).show()
                   }
               }
-              LaunchedEffect(nikoListenAgain.value, nikoHandsFreeMode.value, assistantListening) {
+              LaunchedEffect(nikoListenAgain.value, nikoHandsFreeMode.value) {
                   if (nikoListenAgain.value && nikoHandsFreeMode.value && !assistantListening) {
-                      nikoListenAgain.value = false
                       delay(400)
+                      nikoListenAgain.value = false
                       val nextSpeechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                           putExtra(RecognizerIntent.EXTRA_LANGUAGE, "sk-SK")
