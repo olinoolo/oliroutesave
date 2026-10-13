@@ -215,7 +215,12 @@ jobs:
                       nikoPendingSpeech.value = answer
                       Toast.makeText(context, answer, Toast.LENGTH_LONG).show()
                   } else {
-                      Toast.makeText(context, "Niko nezachytil rec. Skus to znova.", Toast.LENGTH_LONG).show()
+                      if (nikoHandsFreeMode.value) {
+                          Toast.makeText(context, "Niko ťa nezachytil. Skús hovoriť po slovensky, zreteľne a po krátkej pauze.", Toast.LENGTH_SHORT).show()
+                          nikoListenAgain.value = true
+                      } else {
+                          Toast.makeText(context, "Niko nezachytil reč. Skús to znova.", Toast.LENGTH_SHORT).show()
+                      }
                   }
                   assistantListening = false
               }
