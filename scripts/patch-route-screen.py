@@ -81,16 +81,37 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(value = origin, onValueChange = { origin = it; km = null; minutes = null }, label = { Text("Štart (predvolene aktuálna poloha)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(enabled = !loading && origin.isNotBlank() && destination.isNotBlank(), onClick = {
-            val fine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            val coarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (origin == currentLocationLabel && !fine && !coarse) {
-                locationPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
-                return@Button
+        LaunchedEffect(origin, destination) {
+            if (origin.isNotBlank() && destination.isNotBlank()) {
+                kotlinx.coroutines.delay(700)
+                val fine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                val coarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (origin == currentLocationLabel && !fine && !coarse) {
+                    message = "Povoľ prístup k polohe, aby sa trasa vypočítala automaticky."
+                    locationPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                } else {
+                    loading = true
+                    message = "Počítam skutočnú cestnú trasu…"
+                    try {
+                        val result = route(origin.trim(), destination.trim())
+                        km = result.first
+                        minutes = result.second
+                        message = "Vzdialenosť vypočítaná podľa cestných údajov."
+                        context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).apply()
+                    } catch (e: Exception) {
+                        km = null
+                        minutes = null
+                        message = "Trasu sa nepodarilo vypočítať. " + (e.message ?: "Skontroluj názvy miest a internet.")
+                    } finally {
+                        loading = false
+                    }
+                }
+            } else {
+                km = null
+                minutes = null
+                message = "Zadaj štart a cieľ."
             }
-            loading = true; message = "Počítam skutočnú cestnú trasu…"
-            scope.launch { try { val result = route(origin.trim(), destination.trim()); km = result.first; minutes = result.second; message = "Vzdialenosť vypočítaná podľa cestných údajov."; context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).apply() } catch (e: Exception) { km = null; minutes = null; message = "Trasu sa nepodarilo vypočítať. Skontroluj názvy miest a internet. " + (e.message ?: "") } finally { loading = false } }
-        }, modifier = Modifier.fillMaxWidth()) { Text(if (loading) "Počítam…" else "Vypočítať cestnú trasu") }
+        }
         MapPlaceholder("Náhľad mapy", Modifier.fillMaxWidth().height(220.dp))
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("Výsledok trasy", fontWeight = FontWeight.Bold); if (km != null && minutes != null) { val totalMinutes = (minutes ?: 0.0).toInt().coerceAtLeast(0); Text(String.format(Locale.getDefault(), "%.1f km • približne %d h %02d min", km ?: 0.0, totalMinutes / 60, totalMinutes % 60), fontSize = 19.sp, fontWeight = FontWeight.Bold); Text(origin + " → " + destination) } else { Text("Skutočné kilometre sa zobrazia po výpočte.") }; Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) } }
         Button(onClick = onStartNavigation, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("Spustiť navigáciu") }
