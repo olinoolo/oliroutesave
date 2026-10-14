@@ -1900,83 +1900,6 @@ jobs:
               compose.write_text(t)
           print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
 
-      - name: Keep map stable and prioritize current GPS camera
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          root = Path("android-project/app/src/main")
-          candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
-          if not candidates:
-              raise SystemExit("MapLibreMapView source not found.")
-          p = candidates[0]
-          s = p.read_text()
-
-          # Follow live GPS from AndroidView.update, not only from the one-time style callback.
-          # Compose updates this view as liveLocation changes; center the map on each GPS update.
-          follow_anchor = "map.uiSettings.isCompassEnabled = true"
-          follow_code = """map.uiSettings.isCompassEnabled = true
-              // Follow live GPS from AndroidView.update; allow the driver to fit the whole route.
-              if (showWholeRoute) {
-                  val geometryForCamera = routeGeometry
-                  if (!geometryForCamera.isNullOrBlank()) {
-                      try {
-                          val coordsForCamera = org.json.JSONObject(geometryForCamera).getJSONArray("coordinates")
-                          val boundsForCamera = org.maplibre.android.geometry.LatLngBounds.Builder()
-                          for (indexForCamera in 0 until coordsForCamera.length()) {
-                              val pointForCamera = coordsForCamera.getJSONArray(indexForCamera)
-                              boundsForCamera.include(LatLng(pointForCamera.getDouble(1), pointForCamera.getDouble(0)))
-                          }
-                          map.animateCamera(CameraUpdateFactory.newLatLngBounds(boundsForCamera.build(), 36))
-                      } catch (_: Exception) { }
-                  }
-              } else if (liveLocation != null) {
-                  map.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                      LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
-                  ))
-              }"""
-          if follow_anchor in s and "Follow live GPS from AndroidView.update" not in s:
-              s = s.replace(follow_anchor, follow_code, 1)
-          elif "LatLng(liveLocation.latitude, liveLocation.longitude), 13.5" not in s:
-              raise SystemExit("AndroidView camera-follow anchor not found.")
-
-          style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          if style_old in s:
-              s = s.replace(style_old, style_new, 1)
-          elif style_new not in s:
-              raise SystemExit("Map style initialization anchor not found.")
-
-          # Do not reset the camera to a Europe-wide default on every Compose update.
-          camera_pattern = r'map\.cameraPosition = CameraPosition\.Builder\(\)\s*\.target\(LatLng\(48\.7, 19\.7\)\)\s*\.zoom\(4\.2\)\s*\.build\(\)'
-          camera_replacement = '''if (map.getStyle() == null && liveLocation == null) {
-                              map.cameraPosition = CameraPosition.Builder()
-                                  .target(LatLng(48.7, 19.7))
-                                  .zoom(4.2)
-                                  .build()
-                          }'''
-          s, count = re.subn(camera_pattern, camera_replacement, s, count=1)
-          if count == 0 and camera_replacement not in s:
-              raise SystemExit("Default camera block not found; refusing to patch blindly.")
-
-          # When the route is drawn, prefer the current GPS position over fitting all of Europe.
-          bounds_line = 'map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))'
-          gps_camera = '''if (liveLocation != null) {
-                                              map.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                                                  LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
-                                              ))
-                                          } else {
-                                              map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
-                                          }'''
-          if bounds_line in s:
-              s = s.replace(bounds_line, gps_camera, 1)
-          elif 'map.animateCamera(CameraUpdateFactory.newLatLngZoom(' not in s:
-              raise SystemExit("Route bounds camera call not found.")
-
-          p.write_text(s)
-          print("Map style guard retained; camera no longer resets to Europe on recomposition and prioritizes GPS when available.")
-          PY
-
       - name: Add whole-route and GPS-follow map toggle
         run: |
           python3 - <<'PY'
@@ -1999,10 +1922,10 @@ jobs:
                   raise SystemExit("Live GPS state anchor not found in DriveScreen.")
           elif "var showWholeRoute by rememberSaveable { mutableStateOf(false) }" not in t[drive_start:]:
               end = state_pos + len(state_anchor)
-              t = t[:end] + "\n              var showWholeRoute by rememberSaveable { mutableStateOf(false) }" + t[end:]
+              t = t[:end] + "\n              var showWholeRoute by rememberSaveable { mutableStateOf(false) }\n              var fitRouteRequest by rememberSaveable { mutableStateOf(0) }" + t[end:]
 
           old_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation)"
-          new_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation, showWholeRoute = showWholeRoute)"
+          new_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation, showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true })"
           if old_call in t:
               t = t.replace(old_call, new_call, 1)
           elif new_call not in t:
@@ -2010,7 +1933,14 @@ jobs:
 
           map_and_button = new_call + """
                   OutlinedButton(
-                      onClick = { showWholeRoute = !showWholeRoute },
+                      onClick = {
+                          if (showWholeRoute) {
+                              showWholeRoute = false
+                          } else {
+                              showWholeRoute = true
+                              fitRouteRequest += 1
+                          }
+                      },
                       modifier = Modifier.fillMaxWidth()
                   ) {
                       Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")
@@ -2283,25 +2213,219 @@ jobs:
           GRADLE
           echo "Persistent signing configuration added (key material stays outside the repository)."
 
-      - name: Stop GPS camera from hijacking map touch gestures
+      - name: Make map camera gesture-safe (replace AndroidView.update camera logic)
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          candidates = [p for p in Path("android-project/app/src/main").rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
-          if not candidates:
-              raise SystemExit("MapLibreMapView source not found.")
+          root = Path("android-project/app/src/main")
+          candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
+          if len(candidates) != 1:
+              raise SystemExit(f"Expected exactly one MapLibreMapView source, found {len(candidates)}.")
           p = candidates[0]
-          s = p.read_text()
-          # AndroidView.update runs again when Compose state changes. Re-centering
-          # the camera there repeatedly interrupts pinch-zoom and drag gestures.
-          pattern = r'\n\s*// Follow live GPS from AndroidView\.update; allow the driver to fit the whole route\.\n\s*if \(showWholeRoute\) \{.*?\n\s*\}\n(?=\s*if \(map\.getStyle\(\) == null\) map\.setStyle)'
-          updated, count = re.subn(pattern, "\n              // Camera is positioned when the route/style is loaded. Do not recenter on every Compose update: that interrupts manual pan and zoom.\n", s, count=1, flags=re.S)
-          if count == 0:
-              # The generated block may differ slightly; fail rather than silently build an ineffective fix.
-              raise SystemExit("Repeated GPS camera-follow block not found; refusing to make an unverified change.")
-          p.write_text(updated)
-          print("Removed repeated camera recentering from AndroidView.update so map drag and pinch gestures can complete.")
+          old = p.read_text()
+          # Fail loudly if earlier patches did not produce the signature this step is replacing.
+          for needle in ("liveLocation: android.location.Location? = null", "showWholeRoute: Boolean = false"):
+              if needle not in old:
+                  raise SystemExit(f"MapLibreMapView signature anchor missing: {needle}")
+          compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
+          call_text = compose.read_text()
+          for needle in ("fitRouteRequest = fitRouteRequest", "onUserPan = { showWholeRoute = true }",
+                         "var fitRouteRequest by rememberSaveable", 'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")'):
+              if needle not in call_text:
+                  raise SystemExit(f"Drive screen map toggle anchor missing: {needle}")
+          new = r'''
+          package com.oli.routesave.ui.compose
+
+          import android.view.ViewGroup
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.rememberUpdatedState
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleEventObserver
+          import androidx.lifecycle.compose.LocalLifecycleOwner
+          import org.maplibre.android.MapLibre
+          import org.maplibre.android.annotations.Marker
+          import org.maplibre.android.annotations.MarkerOptions
+          import org.maplibre.android.annotations.Polyline
+          import org.maplibre.android.annotations.PolylineOptions
+          import org.maplibre.android.camera.CameraPosition
+          import org.maplibre.android.camera.CameraUpdateFactory
+          import org.maplibre.android.geometry.LatLng
+          import org.maplibre.android.geometry.LatLngBounds
+          import org.maplibre.android.maps.MapLibreMap
+          import org.maplibre.android.maps.MapView
+          import org.maplibre.android.maps.Style
+
+          private fun routePoints(geometryText: String?): List<LatLng> {
+              if (geometryText.isNullOrBlank()) return emptyList()
+              return try {
+                  val coords = org.json.JSONObject(geometryText).getJSONArray("coordinates")
+                  val points = ArrayList<LatLng>()
+                  for (index in 0 until coords.length()) {
+                      val point = coords.getJSONArray(index)
+                      points.add(LatLng(point.getDouble(1), point.getDouble(0)))
+                  }
+                  points
+              } catch (_: Exception) {
+                  emptyList()
+              }
+          }
+
+          /**
+           * Map view whose AndroidView.update never touches the camera.
+           * Camera moves happen only from effects keyed on the state that needs them:
+           * - following live GPS (paused as soon as the user drags/pinches the map),
+           * - fitting the whole route once per "Zobraziť celú trasu" request.
+           */
+          @Composable
+          fun MapLibreMapView(
+              modifier: Modifier = Modifier,
+              routeGeometry: String? = null,
+              liveLocation: android.location.Location? = null,
+              showWholeRoute: Boolean = false,
+              fitRouteRequest: Int = 0,
+              onUserPan: () -> Unit = {}
+          ) {
+              val context = LocalContext.current
+              val lifecycleOwner = LocalLifecycleOwner.current
+              val mapView = remember {
+                  MapLibre.getInstance(context)
+                  MapView(context).apply {
+                      layoutParams = ViewGroup.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                      )
+                      onCreate(null)
+                  }
+              }
+              var map by remember { mutableStateOf<MapLibreMap?>(null) }
+              var styleReady by remember { mutableStateOf(false) }
+              var routeLine by remember { mutableStateOf<Polyline?>(null) }
+              var gpsMarker by remember { mutableStateOf<Marker?>(null) }
+              var followCentered by remember { mutableStateOf(false) }
+              val latestOnUserPan by rememberUpdatedState(onUserPan)
+
+              DisposableEffect(lifecycleOwner, mapView) {
+                  val observer = LifecycleEventObserver { _, event ->
+                      when (event) {
+                          Lifecycle.Event.ON_START -> mapView.onStart()
+                          Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                          Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                          Lifecycle.Event.ON_STOP -> mapView.onStop()
+                          Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                          else -> Unit
+                      }
+                  }
+                  lifecycleOwner.lifecycle.addObserver(observer)
+                  if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mapView.onStart()
+                  if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
+                  onDispose {
+                      lifecycleOwner.lifecycle.removeObserver(observer)
+                      mapView.onPause()
+                      mapView.onStop()
+                      mapView.onDestroy()
+                  }
+              }
+
+              // One-time map setup: gestures are never disabled, camera listener pauses GPS follow on user input.
+              LaunchedEffect(mapView) {
+                  mapView.getMapAsync { readyMap ->
+                      readyMap.uiSettings.isCompassEnabled = true
+                      readyMap.cameraPosition = CameraPosition.Builder()
+                          .target(LatLng(48.7, 19.7))
+                          .zoom(4.2)
+                          .build()
+                      readyMap.addOnCameraMoveStartedListener { reason ->
+                          if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserPan()
+                      }
+                      readyMap.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) {
+                          styleReady = true
+                      }
+                      map = readyMap
+                  }
+              }
+
+              // Blue route line: redrawn only when the route changes.
+              LaunchedEffect(map, styleReady, routeGeometry) {
+                  val readyMap = map ?: return@LaunchedEffect
+                  if (!styleReady) return@LaunchedEffect
+                  routeLine?.let { readyMap.removePolyline(it) }
+                  routeLine = null
+                  val points = routePoints(routeGeometry)
+                  if (points.size >= 2) {
+                      routeLine = readyMap.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
+                  }
+              }
+
+              // GPS marker: moved on each fix, never recreated.
+              LaunchedEffect(map, styleReady, liveLocation) {
+                  val readyMap = map ?: return@LaunchedEffect
+                  if (!styleReady) return@LaunchedEffect
+                  val location = liveLocation ?: return@LaunchedEffect
+                  val position = LatLng(location.latitude, location.longitude)
+                  try {
+                      val existing = gpsMarker
+                      if (existing == null) {
+                          gpsMarker = readyMap.addMarker(MarkerOptions().position(position).title("Aktuálna poloha"))
+                      } else {
+                          existing.position = position
+                      }
+                  } catch (_: Exception) { }
+              }
+
+              // Follow GPS only while following; a user gesture flips showWholeRoute to true and this stops.
+              LaunchedEffect(map, styleReady, liveLocation, showWholeRoute) {
+                  val readyMap = map ?: return@LaunchedEffect
+                  if (!styleReady) return@LaunchedEffect
+                  if (showWholeRoute) {
+                      followCentered = false
+                      return@LaunchedEffect
+                  }
+                  val location = liveLocation ?: return@LaunchedEffect
+                  val target = LatLng(location.latitude, location.longitude)
+                  if (!followCentered) {
+                      followCentered = true
+                      readyMap.easeCamera(CameraUpdateFactory.newLatLngZoom(target, 13.5))
+                  } else {
+                      readyMap.easeCamera(CameraUpdateFactory.newLatLng(target))
+                  }
+              }
+
+              // Fit the whole route once when the route loads (without GPS) or when "Zobraziť celú trasu" is requested.
+              LaunchedEffect(map, styleReady, routeGeometry, fitRouteRequest) {
+                  val readyMap = map ?: return@LaunchedEffect
+                  if (!styleReady) return@LaunchedEffect
+                  val points = routePoints(routeGeometry)
+                  if (points.size < 2) return@LaunchedEffect
+                  val requested = fitRouteRequest > 0 && showWholeRoute
+                  if (requested || liveLocation == null) {
+                      val builder = LatLngBounds.Builder()
+                      points.forEach { builder.include(it) }
+                      readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  }
+              }
+
+              AndroidView(
+                  modifier = modifier,
+                  factory = { mapView },
+                  update = { }
+              )
+          }
+          '''.lstrip("\n")
+          for needle in ("update = { }", "LaunchedEffect(map, styleReady, liveLocation, showWholeRoute)",
+                         "REASON_API_GESTURE", "fitRouteRequest", "Aktuálna poloha", "PolylineOptions()"):
+              if needle not in new:
+                  raise SystemExit(f"Generated map source is missing: {needle}")
+          p.write_text(new + ("" if new.endswith("\n") else "\n"))
+          print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
       - name: Build debug APK and save build log
