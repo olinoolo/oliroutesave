@@ -1900,7 +1900,7 @@ jobs:
               compose.write_text(t)
           print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
 
-      - name: Keep map stable and follow GPS with throttled camera updates
+      - name: Keep map style stable during GPS updates
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -1910,46 +1910,14 @@ jobs:
               raise SystemExit("MapLibreMapView source not found.")
           p = candidates[0]
           s = p.read_text()
-
-          style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          if style_old in s:
-              s = s.replace(style_old, style_new, 1)
-          elif style_new not in s:
+          old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
               raise SystemExit("Map style initialization anchor not found.")
-
-          camera_old = '''map.cameraPosition = CameraPosition.Builder()
-                              .target(LatLng(48.7, 19.7))
-                              .zoom(4.2)
-                              .build()'''
-          camera_new = '''if (map.getStyle() == null && liveLocation == null) {
-                              map.cameraPosition = CameraPosition.Builder()
-                                  .target(LatLng(48.7, 19.7))
-                                  .zoom(4.2)
-                                  .build()
-                          }'''
-          if camera_old in s:
-              s = s.replace(camera_old, camera_new, 1)
-          elif camera_new not in s:
-              raise SystemExit("Initial camera position anchor not found.")
-
-          map_async_anchor = 'view.getMapAsync { map ->'
-          follow_code = '''view.getMapAsync { map ->
-                          liveLocation?.let { location ->
-                              val target = LatLng(location.latitude, location.longitude)
-                              val current = map.cameraPosition
-                              if (current.zoom < 12.0 ||
-                                  kotlin.math.abs(current.target.latitude - target.latitude) > 0.0015 ||
-                                  kotlin.math.abs(current.target.longitude - target.longitude) > 0.0015) {
-                                  map.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 13.5))
-                              }
-                          }'''
-          if map_async_anchor in s and 'kotlin.math.abs(current.target.latitude - target.latitude)' not in s:
-              s = s.replace(map_async_anchor, follow_code, 1)
-          elif 'kotlin.math.abs(current.target.latitude - target.latitude)' not in s:
-              raise SystemExit("Map async camera-follow insertion point not found.")
           p.write_text(s)
-          print("Map style loads once; camera no longer resets to Europe on each update and follows GPS only after meaningful movement.")
+          print("Applied the known-good map style guard. Camera behavior is left unchanged to protect the build.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
