@@ -1916,11 +1916,11 @@ jobs:
           # Compose updates this view as liveLocation changes; center the map on each GPS update.
           follow_anchor = "map.uiSettings.isCompassEnabled = true"
           follow_code = """map.uiSettings.isCompassEnabled = true
-                  if (liveLocation != null) {
-                      map.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                          LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
-                      ))
-                  }"""
+              if (liveLocation != null) {
+                  map.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                      LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
+                  ))
+              }"""
           if follow_anchor in s and "Follow live GPS from AndroidView.update" not in s:
               s = s.replace(follow_anchor, follow_code, 1)
           elif "LatLng(liveLocation.latitude, liveLocation.longitude), 13.5" not in s:
