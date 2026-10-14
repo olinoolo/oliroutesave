@@ -1916,7 +1916,21 @@ jobs:
           # Compose updates this view as liveLocation changes; center the map on each GPS update.
           follow_anchor = "map.uiSettings.isCompassEnabled = true"
           follow_code = """map.uiSettings.isCompassEnabled = true
-              if (liveLocation != null) {
+              // Follow live GPS from AndroidView.update; allow the driver to fit the whole route.
+              if (showWholeRoute) {
+                  val geometryForCamera = routeGeometry
+                  if (!geometryForCamera.isNullOrBlank()) {
+                      try {
+                          val coordsForCamera = org.json.JSONObject(geometryForCamera).getJSONArray("coordinates")
+                          val boundsForCamera = org.maplibre.android.geometry.LatLngBounds.Builder()
+                          for (indexForCamera in 0 until coordsForCamera.length()) {
+                              val pointForCamera = coordsForCamera.getJSONArray(indexForCamera)
+                              boundsForCamera.include(LatLng(pointForCamera.getDouble(1), pointForCamera.getDouble(0)))
+                          }
+                          map.animateCamera(CameraUpdateFactory.newLatLngBounds(boundsForCamera.build(), 36))
+                      } catch (_: Exception) { }
+                  }
+              } else if (liveLocation != null) {
                   map.animateCamera(CameraUpdateFactory.newLatLngZoom(
                       LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
                   ))
@@ -1961,6 +1975,63 @@ jobs:
 
           p.write_text(s)
           print("Map style guard retained; camera no longer resets to Europe on recomposition and prioritizes GPS when available.")
+          PY
+
+      - name: Add whole-route and GPS-follow map toggle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path("android-project/app/src/main")
+          compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
+          if not compose.exists():
+              raise SystemExit("RouteSaveComposeApp.kt not found.")
+          t = compose.read_text()
+
+          # Add a remembered toggle state only inside DriveScreen.
+          drive_start = t.find("private fun DriveScreen")
+          if drive_start < 0:
+              raise SystemExit("DriveScreen function not found.")
+          state_anchor = "var liveLocation by remember { mutableStateOf<android.location.Location?>(null) }"
+          state_pos = t.find(state_anchor, drive_start)
+          if state_pos < 0:
+              if "var showWholeRoute by rememberSaveable { mutableStateOf(false) }" not in t[drive_start:]:
+                  raise SystemExit("Live GPS state anchor not found in DriveScreen.")
+          elif "var showWholeRoute by rememberSaveable { mutableStateOf(false) }" not in t[drive_start:]:
+              end = state_pos + len(state_anchor)
+              t = t[:end] + "\n              var showWholeRoute by rememberSaveable { mutableStateOf(false) }" + t[end:]
+
+          old_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation)"
+          new_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation, showWholeRoute = showWholeRoute)"
+          if old_call in t:
+              t = t.replace(old_call, new_call, 1)
+          elif new_call not in t:
+              raise SystemExit("Driving map call with liveLocation was not found.")
+
+          map_and_button = new_call + """
+                  OutlinedButton(
+                      onClick = { showWholeRoute = !showWholeRoute },
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")
+                  }"""
+          if new_call in t and 'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")' not in t:
+              t = t.replace(new_call, map_and_button, 1)
+          compose.write_text(t)
+
+          candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
+          if not candidates:
+              raise SystemExit("MapLibreMapView source not found.")
+          p = candidates[0]
+          m = p.read_text()
+          old_sig = "liveLocation: android.location.Location? = null)"
+          new_sig = "liveLocation: android.location.Location? = null, showWholeRoute: Boolean = false)"
+          if new_sig not in m:
+              if old_sig not in m:
+                  raise SystemExit("MapLibreMapView liveLocation signature not found.")
+              m = m.replace(old_sig, new_sig, 1)
+          p.write_text(m)
+          print("Added a button to switch between following live GPS and fitting the whole route.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
