@@ -1899,6 +1899,26 @@ jobs:
                   raise SystemExit("Driving screen map call not found.")
               compose.write_text(t)
           print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
+
+      - name: Prevent map style reloads during GPS recomposition
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("android-project/app/src/main")
+          candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
+          if not candidates:
+              raise SystemExit("MapLibreMapView source not found.")
+          p = candidates[0]
+          s = p.read_text()
+          old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          new = 'if (map.style == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit("Map style initialization anchor not found; refusing blind edit.")
+          p.write_text(s)
+          print("Map style is initialized once instead of being reloaded on every GPS-driven recomposition.")
+          PY
           PY
 
       - name: Final cleanup of demo wording on home voice card
