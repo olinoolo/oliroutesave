@@ -2077,6 +2077,98 @@ jobs:
           print("DriveScreen now estimates arrival using the route duration returned by OSRM and displays the local clock time.")
           PY
 
+      - name: Update arrival estimate using live GPS and remaining route
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          start = s.find("private fun DriveScreen")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found.")
+          block = s[start:end]
+
+          anchor = 'val arrivalText = if (savedRouteDurationMinutes > 0f) {'
+          if anchor not in block:
+              if 'MetricCard("Príchod", arrivalText' in block and "estimateRemainingRouteFraction" in block:
+                  print("Dynamic arrival estimate already present.")
+                  raise SystemExit(0)
+              raise SystemExit("Arrival estimate block not found.")
+
+          helper = '''
+              fun estimateRemainingRouteFraction(location: android.location.Location?, geometry: String?): Double? {
+                  if (location == null || geometry.isNullOrBlank()) return null
+                  return try {
+                      val coords = org.json.JSONObject(geometry).getJSONArray("coordinates")
+                      if (coords.length() < 2) return null
+                      val points = ArrayList<Pair<Double, Double>>()
+                      for (i in 0 until coords.length()) {
+                          val c = coords.getJSONArray(i)
+                          points.add(c.getDouble(1) to c.getDouble(0))
+                      }
+                      fun meters(a: Pair<Double, Double>, b: Pair<Double, Double>): Double {
+                          val earth = 6371000.0
+                          val lat1 = Math.toRadians(a.first)
+                          val lat2 = Math.toRadians(b.first)
+                          val dLat = lat2 - lat1
+                          val dLon = Math.toRadians(b.second - a.second)
+                          val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                              Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                          return 2 * earth * Math.asin(Math.sqrt(h.coerceIn(0.0, 1.0)))
+                      }
+                      val cumulative = DoubleArray(points.size)
+                      for (i in 1 until points.size) cumulative[i] = cumulative[i - 1] + meters(points[i - 1], points[i])
+                      val total = cumulative.last()
+                      if (total <= 0.0) return null
+                      val current = location.latitude to location.longitude
+                      var nearestIndex = 0
+                      var nearestDistance = Double.MAX_VALUE
+                      for (i in points.indices) {
+                          val distance = meters(current, points[i])
+                          if (distance < nearestDistance) {
+                              nearestDistance = distance
+                              nearestIndex = i
+                          }
+                      }
+                      // If GPS is far from the planned route, do not present a misleading remaining-time estimate.
+                      if (nearestDistance > 5000.0) return null
+                      ((total - cumulative[nearestIndex]) / total).coerceIn(0.0, 1.0)
+                  } catch (_: Exception) {
+                      null
+                  }
+              }
+          '''
+          if "fun estimateRemainingRouteFraction" not in block:
+              block = block.replace(anchor, helper + "\n              " + anchor, 1)
+
+          old = '''val arrivalText = if (savedRouteDurationMinutes > 0f) {
+                  val estimatedArrivalMillis = System.currentTimeMillis() + savedRouteDurationMinutes.toLong() * 60_000L
+                  java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(estimatedArrivalMillis))
+              } else {
+                  "—"
+              }'''
+          new = '''val remainingFraction = estimateRemainingRouteFraction(liveLocation, savedRouteGeometry)
+              val remainingMinutes = if (remainingFraction != null && savedRouteDurationMinutes > 0f) {
+                  savedRouteDurationMinutes * remainingFraction
+              } else {
+                  savedRouteDurationMinutes
+              }
+              val arrivalText = if (remainingMinutes > 0f) {
+                  val estimatedArrivalMillis = System.currentTimeMillis() + remainingMinutes.toLong() * 60_000L
+                  java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(estimatedArrivalMillis))
+              } else {
+                  "—"
+              }'''
+          if old in block:
+              block = block.replace(old, new, 1)
+          elif "val remainingFraction = estimateRemainingRouteFraction" not in block:
+              raise SystemExit("Arrival calculation block did not match expected source.")
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          print("Arrival time now estimates remaining route fraction from live GPS when GPS is near the saved route; otherwise it retains the full-route estimate.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
