@@ -1878,6 +1878,15 @@ jobs:
               s = s[:anchor.start()] + injected + s[anchor.end():]
           elif 'title("Aktuálna poloha")' not in s:
               raise SystemExit("MapLibre style callback insertion point not found.")
+          follow_anchor = "map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))"
+          follow_code = """map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                                          if (liveLocation != null) {
+                                              map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(liveLocation.latitude, liveLocation.longitude), 13.5))
+                                          }"""
+          if follow_anchor in s and "newLatLngZoom(LatLng(liveLocation.latitude, liveLocation.longitude), 13.5)" not in s:
+              s = s.replace(follow_anchor, follow_code, 1)
+          elif follow_anchor not in s and "newLatLngZoom(LatLng(liveLocation.latitude, liveLocation.longitude), 13.5)" not in s:
+              raise SystemExit("Route camera anchor not found; refusing to change camera-follow behavior blindly.")
           p.write_text(s)
           compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
           if compose.exists():
