@@ -2034,6 +2034,49 @@ jobs:
           print("Added a button to switch between following live GPS and fitting the whole route.")
           PY
 
+      - name: Show estimated arrival time from the calculated route
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          drive_start = s.find("private fun DriveScreen")
+          drive_end = s.find("@Composable", drive_start + 1)
+          if drive_start < 0 or drive_end < 0:
+              raise SystemExit("DriveScreen boundaries not found.")
+          block = s[drive_start:drive_end]
+
+          prefs_line = 'val savedRouteDistance = drivePrefs.getFloat("last_distance_km", 0f)'
+          duration_line = 'val savedRouteDurationMinutes = drivePrefs.getFloat("last_duration_minutes", 0f)'
+          if duration_line not in block:
+              if prefs_line not in block:
+                  raise SystemExit("Saved route distance preference line not found.")
+              block = block.replace(prefs_line, prefs_line + "\n              " + duration_line, 1)
+
+          arrival_anchor = 'val speedText = liveLocation?.takeIf { it.hasSpeed() }?.let { String.format(java.util.Locale.getDefault(), "%.0f km/h", it.speed * 3.6f) } ?: "-- km/h"'
+          arrival_code = arrival_anchor + '''
+              val arrivalText = if (savedRouteDurationMinutes > 0f) {
+                  val estimatedArrivalMillis = System.currentTimeMillis() + savedRouteDurationMinutes.toLong() * 60_000L
+                  java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(estimatedArrivalMillis))
+              } else {
+                  "—"
+              }'''
+          if "val arrivalText = if (savedRouteDurationMinutes > 0f)" not in block:
+              if arrival_anchor not in block:
+                  raise SystemExit("Speed text anchor not found in DriveScreen.")
+              block = block.replace(arrival_anchor, arrival_code, 1)
+
+          old_metric = 'MetricCard("Príchod", "—", Modifier.weight(1f))'
+          new_metric = 'MetricCard("Príchod", arrivalText, Modifier.weight(1f))'
+          if old_metric in block:
+              block = block.replace(old_metric, new_metric, 1)
+          elif new_metric not in block:
+              raise SystemExit("Arrival metric card not found.")
+          s = s[:drive_start] + block + s[drive_end:]
+          p.write_text(s)
+          print("DriveScreen now estimates arrival using the route duration returned by OSRM and displays the local clock time.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
