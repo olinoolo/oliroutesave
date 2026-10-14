@@ -2140,6 +2140,53 @@ jobs:
           print("Driving screen now shows estimated remaining route distance, with decimal precision.")
           PY
 
+      - name: Make arrival time use validated remaining route duration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          start = s.find("private fun DriveScreen")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found.")
+          block = s[start:end]
+          # Replace the remaining-minutes + arrivalText calculation (whitespace tolerant); fail loudly if absent.
+          pattern = re.compile(r'val remainingMinutes = if \(remainingFraction != null && savedRouteDurationMinutes > 0f\) \{.*?\n\s*val arrivalText = if \(remainingMinutes > 0\.0\) \{.*?\n\s*\} else \{\n\s*"—"\n\s*\}', re.S)
+          if len(pattern.findall(block)) != 1:
+              raise SystemExit("Arrival calculation block not found exactly once; refusing to patch ETA blindly.")
+          new_code = """// Route duration is only trusted when it is consistent with the saved distance (20-140 km/h average).
+              val routeDurationValid = savedRouteDurationMinutes > 0f && savedRouteDistance > 0f &&
+                  (savedRouteDistance / (savedRouteDurationMinutes / 60f)) in 20f..140f
+              // With GPS: remaining = full duration * remaining fraction; off-route GPS gives no estimate instead of a stale full duration.
+              val remainingMinutes: Double? = when {
+                  !routeDurationValid -> null
+                  liveLocation == null -> savedRouteDurationMinutes.toDouble()
+                  remainingFraction != null -> savedRouteDurationMinutes.toDouble() * remainingFraction
+                  else -> null
+              }
+              val arrivalText = if (remainingMinutes != null && remainingMinutes > 0.0) {
+                  val nowMillis = System.currentTimeMillis()
+                  val arrivalMillis = nowMillis + Math.round(remainingMinutes) * 60_000L
+                  val arrivalCalendar = java.util.Calendar.getInstance().apply { timeInMillis = arrivalMillis }
+                  val todayCalendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+                  val dayOffset = ((arrivalCalendar.get(java.util.Calendar.YEAR) - todayCalendar.get(java.util.Calendar.YEAR)) * 366 +
+                      (arrivalCalendar.get(java.util.Calendar.DAY_OF_YEAR) - todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)))
+                  val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(arrivalMillis))
+                  if (dayOffset > 0) clock + " (+" + dayOffset + " d)" else clock
+              } else {
+                  "—"
+              }"""
+          block = pattern.sub(lambda m: new_code, block, count=1)
+          for needle in ("routeDurationValid", "Math.round(remainingMinutes)", "(+"):
+              if needle not in block:
+                  raise SystemExit("ETA patch verification failed: " + needle)
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          print("Arrival time now uses validated remaining duration and shows a day offset when it is not today.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
