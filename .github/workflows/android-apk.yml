@@ -1911,14 +1911,20 @@ jobs:
               raise SystemExit("MapLibreMapView source not found.")
           p = candidates[0]
           s = p.read_text()
-          # Log the real map composable before patching, so camera-follow logic is based on
-          # the exact AndroidView lifecycle rather than another guessed source anchor.
-          lines = s.splitlines()
-          start = next((i for i, line in enumerate(lines) if "fun MapLibreMapView(" in line), 0)
-          end = min(len(lines), start + 220)
-          print("--- MapLibreMapView source for camera-follow diagnosis ---")
-          for i in range(start, end):
-              print(f"{i+1}: {lines[i]}")
+
+          # Follow live GPS from AndroidView.update, not only from the one-time style callback.
+          # Compose updates this view as liveLocation changes; center the map on each GPS update.
+          follow_anchor = "map.uiSettings.isCompassEnabled = true"
+          follow_code = """map.uiSettings.isCompassEnabled = true
+                  if (liveLocation != null) {
+                      map.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                          LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
+                      ))
+                  }"""
+          if follow_anchor in s and "Follow live GPS from AndroidView.update" not in s:
+              s = s.replace(follow_anchor, follow_code, 1)
+          elif "LatLng(liveLocation.latitude, liveLocation.longitude), 13.5" not in s:
+              raise SystemExit("AndroidView camera-follow anchor not found.")
 
           style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
           style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
