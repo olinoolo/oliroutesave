@@ -1847,36 +1847,31 @@ jobs:
           print("Added user-controlled foreground GPS updates and live speed display to DriveScreen.")
           PY
 
-      - name: Show current GPS position on the driving map
+      - name: Add current GPS marker to the driving map
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
-          old_sig = "fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null) {"
-          new_sig = "fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null, liveLocation: android.location.Location? = null) {"
-          if old_sig in s:
-              s = s.replace(old_sig, new_sig, 1)
+          sig = "fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null)"
+          new_sig = sig + ", liveLocation: android.location.Location? = null"
+          if sig in s:
+              s = s.replace(sig, new_sig, 1)
           elif new_sig not in s:
-              raise SystemExit("MapLibreMapView signature not found.")
-          old_map = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry)"
-          new_map = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation)"
-          if old_map in s:
-              s = s.replace(old_map, new_map, 1)
-          elif new_map not in s:
-              raise SystemExit("Driving map call with saved route was not found.")
+              raise SystemExit("MapLibreMapView signature missing after map generation.")
+          old_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry)"
+          new_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation)"
+          if old_call in s:
+              s = s.replace(old_call, new_call, 1)
+          elif new_call not in s:
+              raise SystemExit("Driving screen map call missing.")
           old = """                                      if (points.size >= 2) {
                                           map.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
                                           val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
                                           points.forEach { builder.include(it) }
                                           map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
                                       }"""
-          new = """                                      if (points.size >= 2) {
-                                          map.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
-                                          val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
-                                          points.forEach { builder.include(it) }
-                                          map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
-                                      }
+          new = old + """
                                       liveLocation?.let { location ->
                                           val position = LatLng(location.latitude, location.longitude)
                                           map.addMarker(org.maplibre.android.annotations.MarkerOptions().position(position).title("Aktuálna poloha"))
@@ -1885,9 +1880,9 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
           elif 'title("Aktuálna poloha")' not in s:
-              raise SystemExit("Route polyline rendering block not found.")
+              raise SystemExit("Route polyline block missing.")
           p.write_text(s)
-          print("Connected current GPS coordinates to the driving map marker and camera.")
+          print("Added GPS marker rendering to generated MapLibre map.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
