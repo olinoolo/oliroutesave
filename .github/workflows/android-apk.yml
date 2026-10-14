@@ -1900,24 +1900,53 @@ jobs:
               compose.write_text(t)
           print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
 
-      - name: Keep map style stable during GPS updates
+      - name: Keep map stable and prioritize current GPS camera
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           root = Path("android-project/app/src/main")
           candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
           if not candidates:
               raise SystemExit("MapLibreMapView source not found.")
           p = candidates[0]
           s = p.read_text()
-          old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif new not in s:
+
+          style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          if style_old in s:
+              s = s.replace(style_old, style_new, 1)
+          elif style_new not in s:
               raise SystemExit("Map style initialization anchor not found.")
+
+          # Do not reset the camera to a Europe-wide default on every Compose update.
+          camera_pattern = r'map\.cameraPosition = CameraPosition\.Builder\(\)\s*\.target\(LatLng\(48\.7, 19\.7\)\)\s*\.zoom\(4\.2\)\s*\.build\(\)'
+          camera_replacement = '''if (map.getStyle() == null && liveLocation == null) {
+                              map.cameraPosition = CameraPosition.Builder()
+                                  .target(LatLng(48.7, 19.7))
+                                  .zoom(4.2)
+                                  .build()
+                          }'''
+          s, count = re.subn(camera_pattern, camera_replacement, s, count=1)
+          if count == 0 and camera_replacement not in s:
+              raise SystemExit("Default camera block not found; refusing to patch blindly.")
+
+          # When the route is drawn, prefer the current GPS position over fitting all of Europe.
+          bounds_line = 'map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))'
+          gps_camera = '''if (liveLocation != null) {
+                                              map.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                                                  LatLng(liveLocation.latitude, liveLocation.longitude), 13.5
+                                              ))
+                                          } else {
+                                              map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                                          }'''
+          if bounds_line in s:
+              s = s.replace(bounds_line, gps_camera, 1)
+          elif 'map.animateCamera(CameraUpdateFactory.newLatLngZoom(' not in s:
+              raise SystemExit("Route bounds camera call not found.")
+
           p.write_text(s)
-          print("Applied the known-good map style guard. Camera behavior is left unchanged to protect the build.")
+          print("Map style guard retained; camera no longer resets to Europe on recomposition and prioritizes GPS when available.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
