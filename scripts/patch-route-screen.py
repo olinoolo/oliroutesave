@@ -103,7 +103,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                         minutes = result.second
                         routeGeometry = result.third
                         message = "Vzdialenosť vypočítaná podľa cestných údajov."
-                        context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).apply()
+                        context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putFloat("last_duration_minutes", result.second.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).putString("last_route_geometry", result.third).apply()
                     } catch (e: Exception) {
                         km = null
                         minutes = null
