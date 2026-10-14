@@ -2236,6 +2236,8 @@ jobs:
           new = r'''
           package com.oli.routesave.ui.compose
 
+          import android.annotation.SuppressLint
+          import android.view.MotionEvent
           import android.view.ViewGroup
           import androidx.compose.runtime.Composable
           import androidx.compose.runtime.DisposableEffect
@@ -2285,6 +2287,7 @@ jobs:
            * - following live GPS (paused as soon as the user drags/pinches the map),
            * - fitting the whole route once per "Zobraziť celú trasu" request.
            */
+          @SuppressLint("ClickableViewAccessibility")
           @Composable
           fun MapLibreMapView(
               modifier: Modifier = Modifier,
@@ -2304,6 +2307,16 @@ jobs:
                           ViewGroup.LayoutParams.MATCH_PARENT
                       )
                       onCreate(null)
+                      // The map sits inside a vertically scrolling screen; keep the parent from stealing drags.
+                      setOnTouchListener { touchedView, event ->
+                          when (event.actionMasked) {
+                              MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE ->
+                                  touchedView.parent?.requestDisallowInterceptTouchEvent(true)
+                              MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                                  touchedView.parent?.requestDisallowInterceptTouchEvent(false)
+                          }
+                          false
+                      }
                   }
               }
               var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -2420,7 +2433,7 @@ jobs:
               )
           }
           '''.lstrip("\n")
-          for needle in ("update = { }", "LaunchedEffect(map, styleReady, liveLocation, showWholeRoute)",
+          for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, showWholeRoute)",
                          "REASON_API_GESTURE", "fitRouteRequest", "Aktuálna poloha", "PolylineOptions()"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
