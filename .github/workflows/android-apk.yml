@@ -2169,6 +2169,28 @@ jobs:
           print("Arrival time now estimates remaining route fraction from live GPS when GPS is near the saved route; otherwise it retains the full-route estimate.")
           PY
 
+      - name: Display remaining route distance instead of original total
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          start = s.find("private fun DriveScreen")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found")
+          block = s[start:end]
+          old = 'MetricCard("Trasa", if (savedRouteGeometry != null) String.format(java.util.Locale.getDefault(), "%.0f km", savedRouteDistance) else "— km", Modifier.weight(1f))'
+          new = 'MetricCard("Zostáva", if (savedRouteGeometry != null && remainingFraction != null) String.format(java.util.Locale.getDefault(), "%.1f km", savedRouteDistance.toDouble() * remainingFraction) else if (savedRouteGeometry != null) String.format(java.util.Locale.getDefault(), "%.1f km", savedRouteDistance) else "— km", Modifier.weight(1f))'
+          if old in block:
+              block = block.replace(old, new, 1)
+          elif new not in block:
+              raise SystemExit("Route distance metric anchor not found")
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          print("Driving screen now shows estimated remaining route distance, with decimal precision.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
