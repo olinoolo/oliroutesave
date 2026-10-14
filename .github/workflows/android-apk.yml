@@ -2117,23 +2117,42 @@ jobs:
                               Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
                           return 2 * earth * Math.asin(Math.sqrt(h.coerceIn(0.0, 1.0)))
                       }
+                      val segmentLengths = DoubleArray(points.size - 1)
                       val cumulative = DoubleArray(points.size)
-                      for (i in 1 until points.size) cumulative[i] = cumulative[i - 1] + meters(points[i - 1], points[i])
+                      for (i in 0 until points.size - 1) {
+                          segmentLengths[i] = meters(points[i], points[i + 1])
+                          cumulative[i + 1] = cumulative[i] + segmentLengths[i]
+                      }
                       val total = cumulative.last()
                       if (total <= 0.0) return null
-                      val current = location.latitude to location.longitude
-                      var nearestIndex = 0
+                      val currentLat = location.latitude
+                      val currentLon = location.longitude
                       var nearestDistance = Double.MAX_VALUE
-                      for (i in points.indices) {
-                          val distance = meters(current, points[i])
+                      var remainingMeters = total
+                      for (i in 0 until points.size - 1) {
+                          val a = points[i]
+                          val b = points[i + 1]
+                          val meanLat = Math.toRadians((a.first + b.first + currentLat) / 3.0)
+                          val scaleX = 111320.0 * Math.cos(meanLat)
+                          val scaleY = 111320.0
+                          val ax = (a.second - currentLon) * scaleX
+                          val ay = (a.first - currentLat) * scaleY
+                          val bx = (b.second - currentLon) * scaleX
+                          val by = (b.first - currentLat) * scaleY
+                          val dx = bx - ax
+                          val dy = by - ay
+                          val denom = dx * dx + dy * dy
+                          val t = if (denom > 0.0) ((-ax * dx - ay * dy) / denom).coerceIn(0.0, 1.0) else 0.0
+                          val px = ax + t * dx
+                          val py = ay + t * dy
+                          val distance = Math.sqrt(px * px + py * py)
                           if (distance < nearestDistance) {
                               nearestDistance = distance
-                              nearestIndex = i
+                              remainingMeters = total - (cumulative[i] + segmentLengths[i] * t)
                           }
                       }
-                      // If GPS is far from the planned route, do not present a misleading remaining-time estimate.
                       if (nearestDistance > 5000.0) return null
-                      ((total - cumulative[nearestIndex]) / total).coerceIn(0.0, 1.0)
+                      (remainingMeters / total).coerceIn(0.0, 1.0)
                   } catch (_: Exception) {
                       null
                   }
