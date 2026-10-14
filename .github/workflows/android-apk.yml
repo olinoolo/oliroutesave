@@ -1854,7 +1854,7 @@ jobs:
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           sig = "fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null)"
-          new_sig = sig + ", liveLocation: android.location.Location? = null"
+          new_sig = "fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null, liveLocation: android.location.Location? = null)"
           if sig in s:
               s = s.replace(sig, new_sig, 1)
           elif new_sig not in s:
