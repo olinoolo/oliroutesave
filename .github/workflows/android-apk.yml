@@ -2150,11 +2150,11 @@ jobs:
               }'''
           new = '''val remainingFraction = estimateRemainingRouteFraction(liveLocation, savedRouteGeometry)
               val remainingMinutes = if (remainingFraction != null && savedRouteDurationMinutes > 0f) {
-                  savedRouteDurationMinutes * remainingFraction
+                  savedRouteDurationMinutes.toDouble() * remainingFraction
               } else {
-                  savedRouteDurationMinutes
+                  savedRouteDurationMinutes.toDouble()
               }
-              val arrivalText = if (remainingMinutes > 0f) {
+              val arrivalText = if (remainingMinutes > 0.0) {
                   val estimatedArrivalMillis = System.currentTimeMillis() + remainingMinutes.toLong() * 60_000L
                   java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(estimatedArrivalMillis))
               } else {
