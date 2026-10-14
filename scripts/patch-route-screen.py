@@ -56,7 +56,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         } else geocode(a)
         val to = geocode(b)
         val coordinates = from.first.toString() + "," + from.second + ";" + to.first + "," + to.second
-        fun requestRoute(base: String): Pair<Double, Double> {
+        fun requestRoute(base: String): Triple<Double, Double, String> {
             val endpoint = base + coordinates + "?overview=full&geometries=geojson"
             val c = (URL(endpoint).openConnection() as java.net.HttpURLConnection)
             c.connectTimeout = 15000; c.readTimeout = 15000
