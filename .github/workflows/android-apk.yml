@@ -1853,47 +1853,40 @@ jobs:
           from pathlib import Path
           import re
           root = Path("android-project/app/src/main")
-          files = list(root.rglob("*.kt"))
-          map_file = None
-          for candidate in files:
-              text = candidate.read_text()
-              if "fun MapLibreMapView(" in text:
-                  map_file = candidate
-                  break
-          if map_file is None:
+          candidates = [p for p in root.rglob("*.kt") if "fun MapLibreMapView(" in p.read_text()]
+          if not candidates:
               raise SystemExit("MapLibreMapView was not generated in any Kotlin source file.")
-          s = map_file.read_text()
-          s, n = re.subn(r'fun MapLibreMapView\(modifier: Modifier = Modifier, routeGeometry: String\? = null\)', 'fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null, liveLocation: android.location.Location? = null)', s, count=1)
-          if n == 0 and "liveLocation: android.location.Location? = null" not in s:
-              raise SystemExit("MapLibreMapView signature found but could not safely extend it.")
-          old = """                                      if (points.size >= 2) {
-                                          map.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
-                                          val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
-                                          points.forEach { builder.include(it) }
-                                          map.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
-                                      }"""
-          new = old + """
-                                      liveLocation?.let { location ->
-                                          val position = LatLng(location.latitude, location.longitude)
-                                          map.addMarker(org.maplibre.android.annotations.MarkerOptions().position(position).title("Aktuálna poloha"))
-                                          map.animateCamera(CameraUpdateFactory.newLatLngZoom(position, 12.0))
-                                      }"""
-          if old in s:
-              s = s.replace(old, new, 1)
+          p = candidates[0]
+          s = p.read_text()
+          signature_pattern = r'fun MapLibreMapView\(modifier: Modifier = Modifier, routeGeometry: String\? = null\)'
+          s, count = re.subn(signature_pattern, 'fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null, liveLocation: android.location.Location? = null)', s, count=1)
+          if count == 0 and "liveLocation: android.location.Location? = null" not in s:
+              raise SystemExit("Could not extend MapLibreMapView signature.")
+          marker = "                              val geometryText = routeGeometry"
+          injected = """                              liveLocation?.let { location ->
+                                  try {
+                                      map.addMarker(org.maplibre.android.annotations.MarkerOptions()
+                                          .position(LatLng(location.latitude, location.longitude))
+                                          .title("Aktuálna poloha"))
+                                  } catch (_: Exception) { }
+                              }
+                              val geometryText = routeGeometry"""
+          if marker in s:
+              s = s.replace(marker, injected, 1)
           elif 'title("Aktuálna poloha")' not in s:
-              raise SystemExit("MapLibre route rendering block was not found.")
-          map_file.write_text(s)
-          screen = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
-          if screen.exists():
-              t = screen.read_text()
+              raise SystemExit("MapLibre style callback insertion point not found.")
+          p.write_text(s)
+          compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
+          if compose.exists():
+              t = compose.read_text()
               old_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry)"
               new_call = "MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry, liveLocation = liveLocation)"
               if old_call in t:
                   t = t.replace(old_call, new_call, 1)
               elif new_call not in t:
-                  raise SystemExit("Driving screen map call was not found.")
-              screen.write_text(t)
-          print("Added current GPS marker to the MapLibre map in " + str(map_file))
+                  raise SystemExit("Driving screen map call not found.")
+              compose.write_text(t)
+          print("Added live GPS marker before route rendering; existing route rendering is preserved.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
