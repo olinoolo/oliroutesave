@@ -1911,14 +1911,14 @@ jobs:
           p = candidates[0]
           s = p.read_text()
           old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          new = 'if (map.style == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif new not in s:
+          if old not in s:
               raise SystemExit("Map style initialization anchor not found; refusing blind edit.")
+          # AndroidView.update can run on every GPS state change. Keep style loading out of
+          # this hot path by setting it only once for this MapView instance.
+          new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          s = s.replace(old, new, 1)
           p.write_text(s)
-          print("Map style is initialized once instead of being reloaded on every GPS-driven recomposition.")
-          PY
+          print("Guarded map style initialization to avoid repeated reloads.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
