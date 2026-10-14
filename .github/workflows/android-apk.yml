@@ -1858,23 +1858,27 @@ jobs:
               raise SystemExit("MapLibreMapView was not generated in any Kotlin source file.")
           p = candidates[0]
           s = p.read_text()
-          signature_pattern = r'fun MapLibreMapView\(modifier: Modifier = Modifier, routeGeometry: String\? = null\)'
+          signature_pattern = r'fun MapLibreMapView\\(modifier: Modifier = Modifier, routeGeometry: String\\? = null\\)'
           s, count = re.subn(signature_pattern, 'fun MapLibreMapView(modifier: Modifier = Modifier, routeGeometry: String? = null, liveLocation: android.location.Location? = null)', s, count=1)
           if count == 0 and "liveLocation: android.location.Location? = null" not in s:
               raise SystemExit("Could not extend MapLibreMapView signature.")
-          marker = "                              val geometryText = routeGeometry"
-          injected = """                              liveLocation?.let { location ->
-                                  try {
-                                      map.addMarker(org.maplibre.android.annotations.MarkerOptions()
-                                          .position(LatLng(location.latitude, location.longitude))
-                                          .title("Aktuálna poloha"))
-                                  } catch (_: Exception) { }
-                              }
-                              val geometryText = routeGeometry"""
-          if marker in s:
-              s = s.replace(marker, injected, 1)
+          # Match the anchor regardless of indentation changes made by the generator.
+          anchor = re.search(r'(?m)^([ \\t]*)val geometryText = routeGeometry[ \\t]*$', s)
+          if anchor:
+              indent = anchor.group(1)
+              injected = (
+                  indent + 'liveLocation?.let { location ->\\n'
+                  + indent + '    try {\\n'
+                  + indent + '        map.addMarker(org.maplibre.android.annotations.MarkerOptions()\\n'
+                  + indent + '            .position(LatLng(location.latitude, location.longitude))\\n'
+                  + indent + '            .title("Aktuálna poloha"))\\n'
+                  + indent + '    } catch (_: Exception) { }\\n'
+                  + indent + '}\\n'
+                  + indent + 'val geometryText = routeGeometry'
+              )
+              s = s[:anchor.start()] + injected + s[anchor.end():]
           elif 'title("Aktuálna poloha")' not in s:
-              raise SystemExit("MapLibre style callback insertion point not found.")
+              raise SystemExit("MapLibre style callback insertion point not found (indentation-independent search).")
           p.write_text(s)
           compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
           if compose.exists():
@@ -1886,7 +1890,7 @@ jobs:
               elif new_call not in t:
                   raise SystemExit("Driving screen map call not found.")
               compose.write_text(t)
-          print("Added live GPS marker before route rendering; existing route rendering is preserved.")
+          print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
