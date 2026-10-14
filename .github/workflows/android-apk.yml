@@ -1900,7 +1900,7 @@ jobs:
               compose.write_text(t)
           print("Added live GPS marker with indentation-independent insertion; existing route rendering is preserved.")
 
-      - name: Prevent map style reloads during GPS recomposition
+      - name: Keep map stable and follow live GPS without resetting zoom
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -1910,15 +1910,48 @@ jobs:
               raise SystemExit("MapLibreMapView source not found.")
           p = candidates[0]
           s = p.read_text()
-          old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          if old not in s:
-              raise SystemExit("Map style initialization anchor not found; refusing blind edit.")
-          # AndroidView.update can run on every GPS state change. Keep style loading out of
-          # this hot path by setting it only once for this MapView instance.
-          new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
-          s = s.replace(old, new, 1)
+          style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
+          if style_old in s:
+              s = s.replace(style_old, style_new, 1)
+          elif style_new not in s:
+              raise SystemExit("Map style initialization anchor not found.")
+          camera_old = '''map.cameraPosition = CameraPosition.Builder()
+                              .target(LatLng(48.7, 19.7))
+                              .zoom(4.2)
+                              .build()'''
+          camera_new = '''if (map.getStyle() == null) {
+                              map.cameraPosition = CameraPosition.Builder()
+                                  .target(LatLng(48.7, 19.7))
+                                  .zoom(4.2)
+                                  .build()
+                          }'''
+          if camera_old in s:
+              s = s.replace(camera_old, camera_new, 1)
+          elif camera_new not in s:
+              raise SystemExit("Initial camera position anchor not found.")
+          close_anchor = '''                          }
+                      }
+                  }
+              )
+          }'''
+          follow_code = '''                          }
+                          liveLocation?.let { location ->
+                              map.animateCamera(
+                                  CameraUpdateFactory.newLatLngZoom(
+                                      LatLng(location.latitude, location.longitude), 13.5
+                                  )
+                              )
+                          }
+                      }
+                  }
+              )'''
+          if close_anchor in s:
+              s = s.replace(close_anchor, follow_code, 1)
+          elif "CameraUpdateFactory.newLatLngZoom(" not in s:
+              raise SystemExit("Map update camera-follow insertion point not found.")
           p.write_text(s)
-          print("Guarded map style initialization to avoid repeated reloads.")
+          print("Map keeps its loaded style, avoids resetting camera, and follows live GPS updates.")
           PY
 
       - name: Final cleanup of demo wording on home voice card
