@@ -1758,6 +1758,95 @@ jobs:
           print("Driving screen now loads the saved road geometry and route summary; live GPS/turn instructions remain clearly marked as not connected.")
           PY
 
+      - name: Add live GPS status and speed to driving screen
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          pattern = re.compile(r'@Composable\s+private fun DriveScreen\(.*?\n\s*\}\n\n\s*@Composable\n\s*private fun CommunityScreen', re.S)
+          replacement = r'''@Composable
+          private fun DriveScreen(
+              driveRunning: Boolean,
+              onToggleDrive: () -> Unit,
+              assistantListening: Boolean,
+              onAssistantClick: () -> Unit
+          ) {
+              val driveContext = LocalContext.current
+              val drivePrefs = remember(driveContext) { driveContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE) }
+              val savedRouteGeometry = drivePrefs.getString("last_route_geometry", null)
+              val savedRouteDistance = drivePrefs.getFloat("last_distance_km", 0f)
+              val savedRouteDestination = drivePrefs.getString("last_destination", "")
+              var liveLocation by remember { mutableStateOf<android.location.Location?>(null) }
+              var gpsActive by rememberSaveable { mutableStateOf(false) }
+              val gpsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) gpsActive = true
+              }
+              DisposableEffect(gpsActive) {
+                  val manager = driveContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+                  val fine = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                  val coarse = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                  val listener = object : android.location.LocationListener {
+                      override fun onLocationChanged(location: android.location.Location) { liveLocation = location }
+                      @Deprecated("Deprecated by Android")
+                      override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                      override fun onProviderEnabled(provider: String) {}
+                      override fun onProviderDisabled(provider: String) {}
+                  }
+                  if (gpsActive && (fine || coarse)) {
+                      listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER).forEach { provider ->
+                          try {
+                              if (manager.isProviderEnabled(provider)) {
+                                  manager.getLastKnownLocation(provider)?.let { last ->
+                                      if (liveLocation == null || last.time > (liveLocation?.time ?: 0L)) liveLocation = last
+                                  }
+                                  manager.requestLocationUpdates(provider, 2000L, 2f, listener, android.os.Looper.getMainLooper())
+                              }
+                          } catch (_: SecurityException) { } catch (_: IllegalArgumentException) { }
+                      }
+                  }
+                  onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
+              }
+              val speedText = liveLocation?.takeIf { it.hasSpeed() }?.let { String.format(java.util.Locale.getDefault(), "%.0f km/h", it.speed * 3.6f) } ?: "-- km/h"
+              val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: if (gpsActive) "Čakám na polohu GPS…" else "Živá poloha je vypnutá."
+              Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                  Text("Jazda", fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                  Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                      Column(Modifier.padding(16.dp)) {
+                          Text(if (savedRouteGeometry != null) "Vypočítaná trasa je pripravená" else "Navigácia ešte nie je pripojená", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                          Text(if (savedRouteGeometry != null) "Cieľ: " + (savedRouteDestination ?: "") + " • vypočítaná trasa: " + String.format(java.util.Locale.getDefault(), "%.1f km", savedRouteDistance) + ". Živé GPS a pokyny na odbočenie sa pripájajú postupne." else "Najprv vypočítaj trasu na obrazovke Trasa. Živé GPS a pokyny na odbočenie ešte nie sú pripojené.", color = Color.White)
+                      }
+                  }
+                  MapLibreMapView(Modifier.fillMaxWidth().height(200.dp), routeGeometry = savedRouteGeometry)
+                  Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                      MetricCard("Trasa", if (savedRouteGeometry != null) String.format(java.util.Locale.getDefault(), "%.0f km", savedRouteDistance) else "— km", Modifier.weight(1f))
+                      MetricCard("Príchod", "—", Modifier.weight(1f))
+                      MetricCard("Rýchlosť", speedText, Modifier.weight(1f))
+                  }
+                  Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(gpsText, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                  OutlinedButton(onClick = {
+                      val fine = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      val coarse = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      if (fine || coarse) gpsActive = !gpsActive else gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                  }, modifier = Modifier.fillMaxWidth()) { Text(if (gpsActive) "Vypnúť živé GPS" else "Zapnúť živé GPS") }
+                  OutlinedButton(onClick = onAssistantClick, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
+                      Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                      Text(if (assistantListening) "Niko počúva…" else "Hovoriť s Nikom", maxLines = 2, softWrap = true, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                  }
+                  Button(onClick = onToggleDrive, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = if (driveRunning) Color(0xFFE53935) else MaterialTheme.colorScheme.primary)) { Text(if (driveRunning) "UKONČIŤ JAZDU" else "SPUSTIŤ JAZDU") }
+              }
+          }
+
+          @Composable
+          private fun CommunityScreen'''
+          replacement = replacement.replace("          ", "")
+          s, count = pattern.subn(lambda _: replacement, s, count=1)
+          if count != 1: raise SystemExit("DriveScreen could not be replaced exactly once; refusing to build.")
+          p.write_text(s)
+          print("Added user-controlled foreground GPS updates and live speed display to DriveScreen.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
