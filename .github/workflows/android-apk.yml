@@ -1911,6 +1911,14 @@ jobs:
               raise SystemExit("MapLibreMapView source not found.")
           p = candidates[0]
           s = p.read_text()
+          # Log the real map composable before patching, so camera-follow logic is based on
+          # the exact AndroidView lifecycle rather than another guessed source anchor.
+          lines = s.splitlines()
+          start = next((i for i, line in enumerate(lines) if "fun MapLibreMapView(" in line), 0)
+          end = min(len(lines), start + 220)
+          print("--- MapLibreMapView source for camera-follow diagnosis ---")
+          for i in range(start, end):
+              print(f"{i+1}: {lines[i]}")
 
           style_old = 'map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
           style_new = 'if (map.getStyle() == null) map.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) { style ->'
