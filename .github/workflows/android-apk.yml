@@ -2295,8 +2295,8 @@ jobs:
           s = p.read_text()
           # AndroidView.update runs again when Compose state changes. Re-centering
           # the camera there repeatedly interrupts pinch-zoom and drag gestures.
-          pattern = r'\n\s*// Follow live GPS from AndroidView\\.update; allow the driver to fit the whole route\\.\n\s*if \(showWholeRoute\) \{.*?\n\s*\}\n(?=\s*if \(map\.getStyle\(\) == null\) map\.setStyle)'
-          updated, count = re.subn(pattern, "\\n              // Camera is positioned when the route/style is loaded. Do not recenter on every Compose update: that interrupts manual pan and zoom.\\n", s, count=1, flags=re.S)
+          pattern = r'\n\s*// Follow live GPS from AndroidView\.update; allow the driver to fit the whole route\.\n\s*if \(showWholeRoute\) \{.*?\n\s*\}\n(?=\s*if \(map\.getStyle\(\) == null\) map\.setStyle)'
+          updated, count = re.subn(pattern, "\n              // Camera is positioned when the route/style is loaded. Do not recenter on every Compose update: that interrupts manual pan and zoom.\n", s, count=1, flags=re.S)
           if count == 0:
               # The generated block may differ slightly; fail rather than silently build an ineffective fix.
               raise SystemExit("Repeated GPS camera-follow block not found; refusing to make an unverified change.")
