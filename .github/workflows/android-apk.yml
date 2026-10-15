@@ -2191,6 +2191,48 @@ jobs:
           print("Arrival time now uses remaining distance and a route/GPS speed estimate, with a day offset when not today.")
           PY
 
+      - name: Show remaining driving duration next to arrival time
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          start = s.find("private fun DriveScreen")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found.")
+          block = s[start:end]
+          # The arrival calculation is intentionally not modified; the duration reuses its remainingKm and travelKmh values.
+          for needle in ("val remainingKm: Double", "val travelKmh: Double", "val arrivalText = if (remainingKm > 0.05)"):
+              if needle not in block:
+                  raise SystemExit("Arrival calculation anchor missing: " + needle)
+          if "remainingDurationText" in block:
+              raise SystemExit("remainingDurationText already present; refusing to patch twice.")
+          gps_anchor = "val gpsText = "
+          if block.count(gps_anchor) != 1:
+              raise SystemExit("gpsText anchor not found exactly once.")
+          duration_code = """val remainingDurationText = if (remainingKm > 0.05) {
+                  val totalMinutes = Math.round(remainingKm / travelKmh * 60.0)
+                  val hours = totalMinutes / 60
+                  val minutes = totalMinutes % 60
+                  if (hours > 0) hours.toString() + " h " + minutes + " min" else minutes.toString() + " min"
+              } else {
+                  "—"
+              }
+              """
+          block = block.replace(gps_anchor, duration_code + gps_anchor, 1)
+          row_pattern = re.compile(r'(MetricCard\("Rýchlosť", speedText, Modifier\.weight\(1f\)\)\n\s*\})')
+          if len(row_pattern.findall(block)) != 1:
+              raise SystemExit("Metric row anchor not found exactly once.")
+          block = row_pattern.sub(lambda m: m.group(1) + '\n        MetricCard("Zostávajúci čas", remainingDurationText, Modifier.fillMaxWidth())', block, count=1)
+          if 'MetricCard("Zostávajúci čas", remainingDurationText' not in block:
+              raise SystemExit("Duration card patch verification failed.")
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          print("Added remaining driving duration card; arrival time calculation unchanged.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
