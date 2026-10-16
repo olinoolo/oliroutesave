@@ -2281,17 +2281,17 @@ jobs:
           column_new = (
               "    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE\n"
               "    val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp\n"
-              "    var infoPanelOpen by rememberSaveable(isLandscape) { mutableStateOf(!isLandscape) }\n"
+              "    var infoPanelOpen by remember { mutableStateOf(false) }\n"
               "    Box(Modifier.fillMaxSize()) {\n"
               "    MapLibreMapView(Modifier.fillMaxSize()" + map_args + "\n"
               "    Button(onClick = onExit, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) { Text(\"Späť\") }\n"
               "    if (showWholeRoute) {\n"
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }\n"
-              "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = Modifier.align(if (isLandscape) Alignment.BottomEnd else Alignment.TopCenter).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
-              "    if (isLandscape && !infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }\n"
+              "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
+              "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }\n"
               "    if (infoPanelOpen) Column(\n"
-              "        (if (isLandscape) Modifier.align(Alignment.BottomStart).width(320.dp).heightIn(max = (screenHeightDp * 0.55f).dp) else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 340.dp))\n"
+              "        (if (isLandscape) Modifier.align(Alignment.BottomStart).width(320.dp).heightIn(max = (screenHeightDp * 0.55f).dp) else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = (screenHeightDp * 0.4f).dp))\n"
               "            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))\n"
               "            .windowInsetsPadding(WindowInsets.navigationBars)\n"
               "            .verticalScroll(rememberScrollState()).padding(12.dp),\n"
@@ -2306,7 +2306,7 @@ jobs:
           block = stripped[:-len("}")] + "    }\n}\n\n"
           s = s[:start] + block + s[end:]
 
-          for needle in ("ORIENTATION_LANDSCAPE", "rememberSaveable(isLandscape) { mutableStateOf(!isLandscape) }", "isLandscape && !infoPanelOpen", "MapLibreMapView(Modifier.fillMaxSize()", "if (selectedTab != AppTab.Drive.name) NavigationBar(",
+          for needle in ("ORIENTATION_LANDSCAPE", "var infoPanelOpen by remember { mutableStateOf(false) }", "if (!infoPanelOpen) Surface(", "screenHeightDp * 0.4f", "MapLibreMapView(Modifier.fillMaxSize()", "if (selectedTab != AppTab.Drive.name) NavigationBar(",
                          "onExit = { selectedTab = AppTab.Home.name }", 'MetricCard("Zostávajúci čas"',
                          'MetricCard("Príchod", arrivalText', "Zobraziť celú trasu"):
               if needle not in s:
