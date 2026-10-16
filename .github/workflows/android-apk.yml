@@ -2288,7 +2288,7 @@ jobs:
               "    if (showWholeRoute) {\n"
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }\n"
-              "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
+              "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = (if (infoPanelOpen && !isLandscape) Modifier.align(Alignment.TopCenter) else Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars)).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
               "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }\n"
               "    if (infoPanelOpen) Column(\n"
               "        (if (isLandscape) Modifier.align(Alignment.BottomStart).width(320.dp).heightIn(max = (screenHeightDp * 0.55f).dp) else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = (screenHeightDp * 0.4f).dp))\n"
