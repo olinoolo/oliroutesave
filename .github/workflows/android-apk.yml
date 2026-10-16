@@ -2233,6 +2233,83 @@ jobs:
           print("Added remaining driving duration card; arrival time calculation unchanged.")
           PY
 
+      - name: Make the driving screen a fullscreen navigation map
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+
+          def replace_once(text, old, new, label):
+              if text.count(old) != 1:
+                  raise SystemExit("Fullscreen map anchor not found exactly once: " + label)
+              return text.replace(old, new, 1)
+
+          # 1. Hide the bottom navigation bar while the Jazda tab is open.
+          s = replace_once(s,
+              "            bottomBar = {\n                NavigationBar(",
+              "            bottomBar = {\n                if (selectedTab != AppTab.Drive.name) NavigationBar(",
+              "bottomBar NavigationBar")
+
+          # 2. Give DriveScreen a way back to Home, since the bottom bar is hidden there.
+          s = replace_once(s,
+              "                        onAssistantClick = { assistantListening = !assistantListening }\n                    )\n                    AppTab.Community.name",
+              "                        onAssistantClick = { assistantListening = !assistantListening },\n                        onExit = { selectedTab = AppTab.Home.name }\n                    )\n                    AppTab.Community.name",
+              "DriveScreen call")
+          s = replace_once(s,
+              "    assistantListening: Boolean,\n    onAssistantClick: () -> Unit\n) {\n    val driveContext = LocalContext.current",
+              "    assistantListening: Boolean,\n    onAssistantClick: () -> Unit,\n    onExit: () -> Unit = {}\n) {\n    val driveContext = LocalContext.current",
+              "DriveScreen signature")
+
+          start = s.find("private fun DriveScreen(")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found.")
+          block = s[start:end]
+
+          # 3. Move the map to a fullscreen layer; the existing cards/buttons become a bottom panel.
+          map_match = re.search(r'\n[ \t]*(MapLibreMapView\(Modifier\.fillMaxWidth\(\)\.height\(200\.dp\)(, routeGeometry = savedRouteGeometry.*?onUserPan = \{ showWholeRoute = true \}\)))[ \t]*(?=\n)', block)
+          if not map_match:
+              raise SystemExit("Fullscreen map anchor not found: DriveScreen map call")
+          map_args = map_match.group(2)
+          block = block[:map_match.start()] + block[map_match.end():]
+
+          column_old = '    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {\n        Text("Jazda"'
+          if block.count(column_old) != 1:
+              raise SystemExit("Fullscreen map anchor not found: DriveScreen root column")
+          column_new = (
+              "    Box(Modifier.fillMaxSize()) {\n"
+              "    MapLibreMapView(Modifier.fillMaxSize()" + map_args + "\n"
+              "    Button(onClick = onExit, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) { Text(\"Späť\") }\n"
+              "    if (showWholeRoute) {\n"
+              "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "    }\n"
+              "    Column(\n"
+              "        Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 340.dp)\n"
+              "            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))\n"
+              "            .windowInsetsPadding(WindowInsets.navigationBars)\n"
+              "            .verticalScroll(rememberScrollState()).padding(12.dp),\n"
+              "        verticalArrangement = Arrangement.spacedBy(8.dp)\n"
+              "    ) {\n        Text(\"Jazda\""
+          )
+          block = block.replace(column_old, column_new, 1)
+
+          stripped = block.rstrip()
+          if not stripped.endswith("    }\n}"):
+              raise SystemExit("Fullscreen map anchor not found: DriveScreen closing braces")
+          block = stripped[:-len("}")] + "    }\n}\n\n"
+          s = s[:start] + block + s[end:]
+
+          for needle in ("MapLibreMapView(Modifier.fillMaxSize()", "if (selectedTab != AppTab.Drive.name) NavigationBar(",
+                         "onExit = { selectedTab = AppTab.Home.name }", 'MetricCard("Zostávajúci čas"',
+                         'MetricCard("Príchod", arrivalText', "Zobraziť celú trasu"):
+              if needle not in s:
+                  raise SystemExit("Fullscreen map verification failed: " + needle)
+          p.write_text(s)
+          print("Jazda screen now uses a fullscreen map with the bottom navigation hidden.")
+          PY
+
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
