@@ -2408,6 +2408,54 @@ jobs:
                          "var fitRouteRequest by rememberSaveable", 'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")'):
               if needle not in call_text:
                   raise SystemExit(f"Drive screen map toggle anchor missing: {needle}")
+
+          def replace_compose_once(old, replacement, label):
+              global call_text
+              if call_text.count(old) != 1:
+                  raise SystemExit(f"Drive screen followGps anchor missing or duplicated: {label}")
+              call_text = call_text.replace(old, replacement, 1)
+
+          replace_compose_once(
+              "var showWholeRoute by rememberSaveable { mutableStateOf(false) }",
+              "var followGps by rememberSaveable { mutableStateOf(true) }",
+              "follow state"
+          )
+          replace_compose_once(
+              "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
+              "map call"
+          )
+          replace_compose_once(
+              "if (showWholeRoute) {\n"
+              "                    showWholeRoute = false\n"
+              "                } else {\n"
+              "                    showWholeRoute = true\n"
+              "                    fitRouteRequest += 1\n"
+              "                }",
+              "if (!followGps) {\n"
+              "                    followGps = true\n"
+              "                } else {\n"
+              "                    followGps = false\n"
+              "                    fitRouteRequest += 1\n"
+              "                }",
+              "follow/fit button action"
+          )
+          replace_compose_once(
+              'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")',
+              'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
+              "follow/fit button label"
+          )
+          replace_compose_once(
+              "if (showWholeRoute) {\n"
+              "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "    }",
+              "if (!followGps) {\n"
+              "        Button(onClick = { followGps = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "    }",
+              "floating recenter button"
+          )
+          compose.write_text(call_text)
+
           new = r'''
           package com.oli.routesave.ui.compose
 
@@ -2468,9 +2516,9 @@ jobs:
               modifier: Modifier = Modifier,
               routeGeometry: String? = null,
               liveLocation: android.location.Location? = null,
-              showWholeRoute: Boolean = false,
+              followGps: Boolean = true,
               fitRouteRequest: Int = 0,
-              onUserPan: () -> Unit = {}
+              onUserGesture: () -> Unit = {}
           ) {
               val context = LocalContext.current
               val lifecycleOwner = LocalLifecycleOwner.current
@@ -2499,7 +2547,9 @@ jobs:
               var routeLine by remember { mutableStateOf<Polyline?>(null) }
               var gpsMarker by remember { mutableStateOf<Marker?>(null) }
               var followCentered by remember { mutableStateOf(false) }
-              val latestOnUserPan by rememberUpdatedState(onUserPan)
+              var lastFittedRouteGeometry by remember { mutableStateOf<String?>(null) }
+              var lastFitRouteRequest by remember { mutableStateOf(0) }
+              val latestOnUserGesture by rememberUpdatedState(onUserGesture)
 
               DisposableEffect(lifecycleOwner, mapView) {
                   val observer = LifecycleEventObserver { _, event ->
@@ -2532,7 +2582,7 @@ jobs:
                           .zoom(4.2)
                           .build()
                       readyMap.addOnCameraMoveStartedListener { reason ->
-                          if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserPan()
+                          if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserGesture()
                       }
                       readyMap.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) {
                           styleReady = true
@@ -2569,11 +2619,11 @@ jobs:
                   } catch (_: Exception) { }
               }
 
-              // Follow GPS only while following; a user gesture flips showWholeRoute to true and this stops.
-              LaunchedEffect(map, styleReady, liveLocation, showWholeRoute) {
+              // A direct user gesture pauses GPS follow; the recenter control enables it again.
+              LaunchedEffect(map, styleReady, liveLocation, followGps) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
-                  if (showWholeRoute) {
+                  if (!followGps) {
                       followCentered = false
                       return@LaunchedEffect
                   }
@@ -2587,18 +2637,20 @@ jobs:
                   }
               }
 
-              // Fit the whole route once when the route loads (without GPS) or when "Zobraziť celú trasu" is requested.
+              // Fit once per newly loaded route, or for each explicit fit request.
               LaunchedEffect(map, styleReady, routeGeometry, fitRouteRequest) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   val points = routePoints(routeGeometry)
                   if (points.size < 2) return@LaunchedEffect
-                  val requested = fitRouteRequest > 0 && showWholeRoute
-                  if (requested || liveLocation == null) {
-                      val builder = LatLngBounds.Builder()
-                      points.forEach { builder.include(it) }
-                      readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
-                  }
+                  val routeLoaded = routeGeometry != lastFittedRouteGeometry
+                  val requested = fitRouteRequest != lastFitRouteRequest
+                  if (!routeLoaded && !requested) return@LaunchedEffect
+                  val builder = LatLngBounds.Builder()
+                  points.forEach { builder.include(it) }
+                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  lastFittedRouteGeometry = routeGeometry
+                  lastFitRouteRequest = fitRouteRequest
               }
 
               AndroidView(
@@ -2608,11 +2660,25 @@ jobs:
               )
           }
           '''.lstrip("\n")
-          for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, showWholeRoute)",
-                         "REASON_API_GESTURE", "fitRouteRequest", "Aktuálna poloha", "PolylineOptions()"):
+          for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, followGps)",
+                         "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
+                         "Aktuálna poloha", "PolylineOptions()"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
+          for obsolete in ("showWholeRoute", "onUserPan", "latestOnUserPan"):
+              if obsolete in new:
+                  raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
+          call_text = compose.read_text()
+          for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
+                         "followGps = followGps", "onUserGesture = { followGps = false }",
+                         'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
+                         "Button(onClick = { followGps = true }"):
+              if needle not in call_text:
+                  raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
+          for obsolete in ("showWholeRoute", "onUserPan"):
+              if obsolete in call_text:
+                  raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
