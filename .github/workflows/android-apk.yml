@@ -2328,9 +2328,8 @@ jobs:
           block = s[drive_start:drive_end]
           import re
           launcher_pattern = re.compile(
-              r"(?m)^[ \\t]*val gpsPermissionLauncher = rememberLauncherForActivityResult\\(ActivityResultContracts\\.RequestMultiplePermissions\\(\\)\\) \\{ grants ->\\n"
-              r"[ \\t]*if \\(grants\\[android\\.Manifest\\.permission\\.ACCESS_FINE_LOCATION\\] == true \\|\\| grants\\[android\\.Manifest\\.permission\\.ACCESS_COARSE_LOCATION\\] == true\\) gpsActive = true\\n"
-              r"[ \\t]*\\}"
+              r"val gpsPermissionLauncher = rememberLauncherForActivityResult\\(ActivityResultContracts\\.RequestMultiplePermissions\\(\\)\\) \\{ grants ->.*?gpsActive = true.*?\\}",
+              re.DOTALL
           )
           effect = """              // Entering the driving screen after route calculation is the user's explicit start action.
               // Start live GPS immediately when permission exists; otherwise request it once for this route.
