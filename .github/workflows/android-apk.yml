@@ -2315,56 +2315,6 @@ jobs:
           print("Jazda screen now uses a fullscreen map with the bottom navigation hidden.")
           PY
 
-      - name: Start live GPS when entering a calculated route
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
-          s = p.read_text()
-          drive_start = s.find("private fun DriveScreen(")
-          drive_end = s.find("@Composable", drive_start + 1)
-          if drive_start < 0 or drive_end < 0:
-              raise SystemExit("DriveScreen boundaries not found; refusing to wire navigation start.")
-          block = s[drive_start:drive_end]
-          import re
-          launcher_pattern = re.compile(
-              r"val gpsPermissionLauncher = rememberLauncherForActivityResult\\(ActivityResultContracts\\.RequestMultiplePermissions\\(\\)\\) \\{ grants ->.*?gpsActive = true.*?\\}",
-              re.DOTALL
-          )
-          effect = """              // Entering the driving screen after route calculation is the user's explicit start action.
-              // Start live GPS immediately when permission exists; otherwise request it once for this route.
-              LaunchedEffect(savedRouteGeometry) {
-                  if (!savedRouteGeometry.isNullOrBlank()) {
-                      val hasFineLocation = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                      val hasCoarseLocation = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                      if (hasFineLocation || hasCoarseLocation) {
-                          gpsActive = true
-                      } else {
-                          gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
-                      }
-                  }
-              }
-          """
-          if "LaunchedEffect(savedRouteGeometry)" not in block:
-              block, replacements = launcher_pattern.subn(lambda match: match.group(0) + "\\n" + effect, block, count=1)
-              if replacements != 1:
-                  raise SystemExit("GPS permission launcher pattern not found; refusing an unsafe navigation patch.")
-          if 'var gpsActive by rememberSaveable { mutableStateOf(false) }' not in block:
-              raise SystemExit("Expected GPS state not found in DriveScreen.")
-          if 'if (gpsActive) "Navigácia aktívna' not in block:
-              old = 'val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: if (gpsActive) "Čakám na polohu GPS…" else "Živá poloha je vypnutá."'
-              new = 'val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), if (gpsActive) "Navigácia aktívna · GPS: %.5f, %.5f" else "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: if (gpsActive) "Navigácia aktívna · čakám na polohu GPS…" else "Živá poloha je vypnutá."'
-              if old not in block:
-                  raise SystemExit("GPS status text anchor not found; refusing to mislabel navigation state.")
-              block = block.replace(old, new, 1)
-          s = s[:drive_start] + block + s[drive_end:]
-          for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))", "Navigácia aktívna · čakám na polohu GPS…"):
-              if needle not in s:
-                  raise SystemExit("Navigation start verification failed: " + needle)
-          p.write_text(s)
-          print("DriveScreen now requests location permission and starts live GPS when opened with a calculated route.")
-          PY
-
       - name: Final cleanup of demo wording on home voice card
         run: |
           python3 - <<'PY'
