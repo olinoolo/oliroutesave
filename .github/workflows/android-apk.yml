@@ -2326,11 +2326,13 @@ jobs:
           if drive_start < 0 or drive_end < 0:
               raise SystemExit("DriveScreen boundaries not found; refusing to wire navigation start.")
           block = s[drive_start:drive_end]
-          launcher_end = '''              val gpsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) gpsActive = true
-              }
-          '''
-          effect = launcher_end + '''              // Entering the driving screen after route calculation is the user's explicit start action.
+          import re
+          launcher_pattern = re.compile(
+              r"(?m)^[ \\t]*val gpsPermissionLauncher = rememberLauncherForActivityResult\\(ActivityResultContracts\\.RequestMultiplePermissions\\(\\)\\) \\{ grants ->\\n"
+              r"[ \\t]*if \\(grants\\[android\\.Manifest\\.permission\\.ACCESS_FINE_LOCATION\\] == true \\|\\| grants\\[android\\.Manifest\\.permission\\.ACCESS_COARSE_LOCATION\\] == true\\) gpsActive = true\\n"
+              r"[ \\t]*\\}"
+          )
+          effect = """              // Entering the driving screen after route calculation is the user's explicit start action.
               // Start live GPS immediately when permission exists; otherwise request it once for this route.
               LaunchedEffect(savedRouteGeometry) {
                   if (!savedRouteGeometry.isNullOrBlank()) {
@@ -2343,11 +2345,11 @@ jobs:
                       }
                   }
               }
-          '''
+          """
           if "LaunchedEffect(savedRouteGeometry)" not in block:
-              if launcher_end not in block:
-                  raise SystemExit("GPS permission launcher anchor not found; refusing an unsafe navigation patch.")
-              block = block.replace(launcher_end, effect, 1)
+              block, replacements = launcher_pattern.subn(lambda match: match.group(0) + "\\n" + effect, block, count=1)
+              if replacements != 1:
+                  raise SystemExit("GPS permission launcher pattern not found; refusing an unsafe navigation patch.")
           if 'var gpsActive by rememberSaveable { mutableStateOf(false) }' not in block:
               raise SystemExit("Expected GPS state not found in DriveScreen.")
           if 'if (gpsActive) "Navigácia aktívna' not in block:
