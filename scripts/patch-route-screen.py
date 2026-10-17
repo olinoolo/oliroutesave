@@ -120,7 +120,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         }
         MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("Výsledok trasy", fontWeight = FontWeight.Bold); if (km != null && minutes != null) { val totalMinutes = (minutes ?: 0.0).toInt().coerceAtLeast(0); Text(String.format(Locale.getDefault(), "%.1f km • približne %d h %02d min", km ?: 0.0, totalMinutes / 60, totalMinutes % 60), fontSize = 19.sp, fontWeight = FontWeight.Bold); Text(origin + " → " + destination) } else { Text("Skutočné kilometre sa zobrazia po výpočte.") }; Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) } }
-        Button(onClick = onStartNavigation, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("Spustiť navigáciu") }
+        Button(enabled = !loading && routeGeometry != null && (km ?: 0.0) > 0.0, onClick = { if (!loading && routeGeometry != null && (km ?: 0.0) > 0.0) onStartNavigation() }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text(if (loading) "Počítam trasu…" else if (routeGeometry == null) "Najprv vypočítaj trasu" else "Spustiť navigáciu") }
     }
 }
 
