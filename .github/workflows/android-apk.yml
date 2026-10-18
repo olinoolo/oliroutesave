@@ -2835,6 +2835,15 @@ jobs:
           internal fun followLogMessage(before: Boolean, event: FollowEvent): String =
               "GPS follow " + before + " -> " + event.followAfter + " (" + event.label + ")"
 
+          /** Largest allowed gap between the route's last point and the geocoded destination (road snapping tolerance). */
+          internal const val ROUTE_END_TOLERANCE_KM = 25.0
+
+          /** Gap between the route end and the destination; null when either is missing. */
+          internal fun routeEndGapKm(route: List<GeoPoint>, destination: GeoPoint?): Double? {
+              val end = route.lastOrNull() ?: return null
+              return if (destination == null) null else distanceKm(end, destination)
+          }
+
           internal fun distanceKm(a: GeoPoint, b: GeoPoint): Double {
               val r = 6371.0088
               val dLat = Math.toRadians(b.latitude - a.latitude)
@@ -2907,6 +2916,16 @@ jobs:
                   assertEquals(true, destinationCue(mistelbach, munich)!!.endsWith("smer Z"))
                   assertNull(destinationCue(null, munich))
                   assertNull(destinationCue(mistelbach, null))
+              }
+
+              @Test fun routeEndMustBeNearSavedDestination() {
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val goodRoute = listOf(GeoPoint(48.37658, 16.23277), GeoPoint(48.14, 11.58))
+                  val viennaRoute = listOf(GeoPoint(48.37658, 16.23277), GeoPoint(48.2082, 16.3738))
+                  assertTrue(routeEndGapKm(goodRoute, munich)!! < ROUTE_END_TOLERANCE_KM)
+                  assertTrue(routeEndGapKm(viennaRoute, munich)!! > ROUTE_END_TOLERANCE_KM)
+                  assertNull(routeEndGapKm(goodRoute, null))
+                  assertNull(routeEndGapKm(emptyList(), munich))
               }
 
               @Test fun fitBoundsSpanFromCurrentAreaToMunich() {
@@ -2988,7 +3007,9 @@ jobs:
                          "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
-          for needle in ('putString("last_destination_coordinates", to.first.toString() + "," + to.second)',
+          for needle in ('putString("last_destination_coordinates", result.destinationLonLat)',
+                         "destinationCoordinates = result.destinationLonLat",
+                         "ROUTE_END_TOLERANCE_KM", "routeEndToDestinationKm",
                          "remove(\"last_destination_coordinates\")",
                          "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)"):
               if needle not in call_text:
