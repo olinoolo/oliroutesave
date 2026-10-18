@@ -2464,7 +2464,7 @@ jobs:
 
           replace_compose_once(
               "var showWholeRoute by rememberSaveable { mutableStateOf(false) }",
-              "var followGps by rememberSaveable { mutableStateOf(true) }",
+              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
               "follow state"
           )
           replace_compose_once(
@@ -2780,16 +2780,9 @@ jobs:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
           call_text = compose.read_text()
-          follow_state = "var followGps by rememberSaveable { mutableStateOf(true) }"
+          follow_state = "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }"
           if call_text.count(follow_state) != 1:
-              raise SystemExit("DriveScreen followGps state anchor missing or duplicated.")
-          call_text = call_text.replace(
-              follow_state,
-              follow_state + '\n              LaunchedEffect(savedRouteGeometry) {\n'
-              '                  if (!savedRouteGeometry.isNullOrBlank()) followGps = true\n'
-              '              }',
-              1
-          )
+              raise SystemExit("DriveScreen route-keyed followGps state anchor missing or duplicated.")
           map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }"
           if call_text.count(map_call_anchor) != 1:
               raise SystemExit("Final DriveScreen map call anchor missing or duplicated.")
@@ -2824,8 +2817,7 @@ jobs:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
           for needle in ('putString("last_destination_coordinates", to.first.toString() + "," + to.second)',
                          "remove(\"last_destination_coordinates\")",
-                         "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)",
-                         "if (!savedRouteGeometry.isNullOrBlank()) followGps = true"):
+                         "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated route destination/follow wiring is missing: {needle}")
           for needle in ("private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng?",
@@ -2837,7 +2829,7 @@ jobs:
               raise SystemExit("Final generated MapLibre source is missing the live GPS marker.")
           if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
               raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
-          for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
+          for needle in ("var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
                          "followGps = followGps", "onUserGesture = { followGps = false }",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
                          "Button(onClick = { followGps = true }"):
@@ -2846,6 +2838,8 @@ jobs:
           for obsolete in ("showWholeRoute", "onUserPan"):
               if obsolete in call_text:
                   raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
+          if "var followGps by rememberSaveable" in call_text:
+              raise SystemExit("Generated DriveScreen must not restore a previously paused GPS-follow state.")
           compose.write_text(call_text)
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
