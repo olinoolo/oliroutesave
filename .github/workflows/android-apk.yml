@@ -2693,6 +2693,11 @@ jobs:
                   val routeLoaded = routeGeometry != lastFittedRouteGeometry
                   val requested = fitRouteRequest != lastFitRouteRequest
                   if (!routeLoaded && !requested) return@LaunchedEffect
+                  if (routeLoaded && !requested && followGps && liveLocation != null) {
+                      lastFittedRouteGeometry = routeGeometry
+                      lastFitRouteRequest = fitRouteRequest
+                      return@LaunchedEffect
+                  }
                   val builder = LatLngBounds.Builder()
                   points.forEach { builder.include(it) }
                   readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
@@ -2709,7 +2714,9 @@ jobs:
           '''.lstrip("\n")
           for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, followGps)",
                          "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
-                         "Aktuálna poloha", "PolylineOptions()"):
+                         "Aktuálna poloha", "PolylineOptions()",
+                         "if (routeLoaded && !requested && followGps && liveLocation != null)",
+                         "lastFittedRouteGeometry = routeGeometry"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
           for obsolete in ("showWholeRoute", "onUserPan", "latestOnUserPan"):
