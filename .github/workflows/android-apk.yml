@@ -2717,11 +2717,32 @@ jobs:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
           call_text = compose.read_text()
+          manifest = root / "AndroidManifest.xml"
+          if not manifest.is_file():
+              raise SystemExit("Final AndroidManifest.xml is missing.")
+          import xml.etree.ElementTree as ET
+          android_ns = "{http://schemas.android.com/apk/res/android}"
+          try:
+              manifest_root = ET.parse(manifest).getroot()
+          except ET.ParseError as error:
+              raise SystemExit(f"Final AndroidManifest.xml is invalid: {error}")
+          declared_permissions = {
+              element.get(android_ns + "name")
+              for element in manifest_root.findall("uses-permission")
+          }
+          for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
+              if permission not in declared_permissions:
+                  raise SystemExit(f"Final AndroidManifest.xml is missing {permission}.")
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
+                         "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION)",
+                         "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION)",
                          "manager.getCurrentLocation(provider", "manager.requestLocationUpdates(provider, 1000L, 0f, listener",
-                         "override fun onLocationChanged(location: android.location.Location)", "gpsStatus", "liveLocation = liveLocation"):
+                         "override fun onLocationChanged(location: android.location.Location)", "gpsStatus",
+                         "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
+          if 'addMarker(MarkerOptions().position(position).title("Aktuálna poloha"))' not in new:
+              raise SystemExit("Final generated MapLibre source is missing the live GPS marker.")
           for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
                          "followGps = followGps", "onUserGesture = { followGps = false }",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
