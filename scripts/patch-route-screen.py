@@ -10,7 +10,8 @@ replacement = r'''private data class PlannedRoute(
     val minutes: Double,
     val geometry: String,
     val destinationLonLat: String,
-    val startLonLat: String
+    val startLonLat: String,
+    val steps: String
 )
 
 @Composable
@@ -66,7 +67,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
         val to = geocode(b)
         val coordinates = from.first.toString() + "," + from.second + ";" + to.first + "," + to.second
         fun requestRoute(base: String): PlannedRoute {
-            val endpoint = base + coordinates + "?overview=full&geometries=geojson"
+            val endpoint = base + coordinates + "?overview=full&geometries=geojson&steps=true"
             val c = (URL(endpoint).openConnection() as java.net.HttpURLConnection)
             c.connectTimeout = 15000; c.readTimeout = 15000
             c.setRequestProperty("User-Agent", "OLI-RouteSave/1.0 (Android route planner)")
@@ -82,13 +83,26 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                 if (routes.length() == 0) throw IllegalStateException("Pre tieto miesta sa nenašla cestná trasa.")
                 val r = routes.getJSONObject(0)
                 val geometry = r.optJSONObject("geometry")?.toString() ?: throw IllegalStateException("Služba nevrátila geometriu trasy.")
+                val stepsText = StringBuilder()
+                val legs = r.optJSONArray("legs")
+                if (legs != null) for (l in 0 until legs.length()) {
+                    val legSteps = legs.getJSONObject(l).optJSONArray("steps") ?: continue
+                    for (i in 0 until legSteps.length()) {
+                        val step = legSteps.getJSONObject(i)
+                        val maneuver = step.optJSONObject("maneuver") ?: continue
+                        val location = maneuver.optJSONArray("location") ?: continue
+                        stepsText.append(location.getDouble(0)).append(",").append(location.getDouble(1)).append("|")
+                            .append(maneuver.optString("type")).append("|").append(maneuver.optString("modifier")).append("|")
+                            .append(step.optString("name").replace("|", " ").replace("\n", " ")).append("\n")
+                    }
+                }
                 val line = r.getJSONObject("geometry").getJSONArray("coordinates")
                 if (line.length() < 2) throw IllegalStateException("Geometria trasy je príliš krátka.")
                 val last = line.getJSONArray(line.length() - 1)
                 val gapKm = distanceKm(GeoPoint(last.getDouble(1), last.getDouble(0)), GeoPoint(to.second, to.first))
                 android.util.Log.d("OLIRoute", "Route from=" + from.second + "," + from.first + " to=" + to.second + "," + to.first + " routeEndToDestinationKm=" + gapKm)
                 if (gapKm > ROUTE_END_TOLERANCE_KM) throw IllegalStateException("Trasa nekončí pri cieli (rozdiel " + gapKm.toInt() + " km).")
-                return PlannedRoute(r.getDouble("distance") / 1000.0, r.getDouble("duration") / 60.0, geometry, to.first.toString() + "," + to.second, from.first.toString() + "," + from.second)
+                return PlannedRoute(r.getDouble("distance") / 1000.0, r.getDouble("duration") / 60.0, geometry, to.first.toString() + "," + to.second, from.first.toString() + "," + from.second, stepsText.toString())
             } finally { c.disconnect() }
         }
         try {
@@ -119,7 +133,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                         routeGeometry = result.geometry
                         destinationCoordinates = result.destinationLonLat
                         message = "Vzdialenosť vypočítaná podľa cestných údajov."
-                        context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.km.toFloat()).putFloat("last_duration_minutes", result.minutes.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).putString("last_route_geometry", result.geometry).putString("last_destination_coordinates", result.destinationLonLat).putString("last_start_coordinates", result.startLonLat).apply()
+                        context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.km.toFloat()).putFloat("last_duration_minutes", result.minutes.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).putString("last_route_geometry", result.geometry).putString("last_destination_coordinates", result.destinationLonLat).putString("last_start_coordinates", result.startLonLat).putString("last_route_steps", result.steps).apply()
                     } catch (e: Exception) {
                         km = null
                         minutes = null

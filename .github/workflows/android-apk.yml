@@ -2557,6 +2557,9 @@ jobs:
               }
           }
 
+          internal fun routeGeoPoints(geometryText: String?): List<GeoPoint> =
+              routePoints(geometryText).map { GeoPoint(it.latitude, it.longitude) }
+
           private fun destinationMarkerIcon(context: android.content.Context): org.maplibre.android.annotations.Icon {
               val density = context.resources.displayMetrics.density
               val bitmap = android.graphics.Bitmap.createBitmap(
@@ -2867,6 +2870,77 @@ jobs:
               return names[(((bearing % 360.0) + 360.0) % 360.0 / 45.0 + 0.5).toInt() % 8]
           }
 
+          internal data class NavStep(val point: GeoPoint, val type: String, val modifier: String, val name: String)
+
+          /** Parses saved OSRM maneuvers: one "lon,lat|type|modifier|name" line per step. */
+          internal fun parseSteps(text: String?): List<NavStep> {
+              if (text.isNullOrBlank()) return emptyList()
+              return text.lines().mapNotNull { line ->
+                  val parts = line.split("|", limit = 4)
+                  if (parts.size < 4) return@mapNotNull null
+                  val point = parseLonLat(parts[0]) ?: return@mapNotNull null
+                  NavStep(point, parts[1], parts[2], parts[3].trim())
+              }
+          }
+
+          /** Route geometry plus each maneuver's vertex index on it, computed once per route. */
+          internal class NavPlan(val points: List<GeoPoint>, val steps: List<NavStep>) {
+              val stepIndex: List<Int> = steps.map { nearestIndex(points, it.point) }
+          }
+
+          internal fun nearestIndex(points: List<GeoPoint>, p: GeoPoint): Int {
+              var best = 0
+              var bestD = Double.MAX_VALUE
+              val k = Math.cos(Math.toRadians(p.latitude))
+              for (i in points.indices) {
+                  val dx = (points[i].longitude - p.longitude) * k
+                  val dy = points[i].latitude - p.latitude
+                  val d = dx * dx + dy * dy
+                  if (d < bestD) { bestD = d; best = i }
+              }
+              return best
+          }
+
+          internal fun formatDistance(km: Double): String =
+              if (km < 1.0) (Math.round(km * 100.0) * 10L).toString() + " m" else String.format(java.util.Locale.US, "%.1f km", km)
+
+          internal fun describeStep(step: NavStep): String {
+              val direction = when (step.modifier) {
+                  "left" -> "vľavo"
+                  "right" -> "vpravo"
+                  "slight left" -> "mierne vľavo"
+                  "slight right" -> "mierne vpravo"
+                  "sharp left" -> "ostro vľavo"
+                  "sharp right" -> "ostro vpravo"
+                  "uturn" -> "otočte sa"
+                  else -> "rovno"
+              }
+              val onto = if (step.name.isBlank()) "" else " na " + step.name
+              return when (step.type) {
+                  "arrive" -> "Cieľ"
+                  "roundabout", "rotary", "roundabout turn" -> "Kruhový objazd, vyjdite " + direction + onto
+                  "merge" -> "Zaraďte sa " + direction + onto
+                  "fork" -> "Na rázcestí " + direction + onto
+                  "on ramp", "off ramp" -> "Zjazd " + direction + onto
+                  "continue", "new name" -> "Pokračujte " + direction + onto
+                  else -> if (step.modifier == "uturn") "Otočte sa" + onto else "Odbočte " + direction + onto
+              }
+          }
+
+          /** Next maneuver ahead of the live position, with distance along the route; null when there is no guidance data. */
+          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?): String? {
+              if (location == null || plan.points.size < 2 || plan.steps.isEmpty()) return null
+              val progress = nearestIndex(plan.points, location)
+              if (distanceKm(location, plan.points[progress]) > OFF_ROUTE_KM) return "Mimo trasy"
+              val next = plan.stepIndex.indexOfFirst { it > progress }
+              if (next < 0) return "Ste v cieli"
+              var km = distanceKm(location, plan.points[progress])
+              for (i in progress until plan.stepIndex[next]) km += distanceKm(plan.points[i], plan.points[i + 1])
+              return describeStep(plan.steps[next]) + " o " + formatDistance(km)
+          }
+
+          internal const val OFF_ROUTE_KM = 0.15
+
           /** Text for the navigation overlay: straight-line distance and direction to the destination, which is off-screen while following GPS. */
           internal fun destinationCue(current: GeoPoint?, destination: GeoPoint?): String? {
               if (current == null || destination == null) return null
@@ -2926,6 +3000,37 @@ jobs:
                   assertTrue(routeEndGapKm(viennaRoute, munich)!! > ROUTE_END_TOLERANCE_KM)
                   assertNull(routeEndGapKm(goodRoute, null))
                   assertNull(routeEndGapKm(emptyList(), munich))
+              }
+
+              private val line = (0..4).map { GeoPoint(48.0, 16.0 + it * 0.01) }
+              private val plan = NavPlan(
+                  line,
+                  parseSteps("16.0,48.0|depart|right|A22\n16.02,48.0|turn|right|Hlavná\n16.04,48.0|arrive||\nbroken line\n")
+              )
+
+              @Test fun parseStepsSkipsBrokenLines() {
+                  assertEquals(3, plan.steps.size)
+                  assertEquals("Hlavná", plan.steps[1].name)
+                  assertEquals(listOf(0, 2, 4), plan.stepIndex)
+                  assertTrue(parseSteps(null).isEmpty())
+              }
+
+              @Test fun nextInstructionPointsAtUpcomingTurn() {
+                  val text = nextInstruction(plan, line[1])!!
+                  assertTrue(text.startsWith("Odbočte vpravo na Hlavná o "), text)
+                  assertTrue(text.endsWith(" m"), text)
+              }
+
+              @Test fun instructionAdvancesAfterPassingTurn() {
+                  val text = nextInstruction(plan, line[3])!!
+                  assertTrue(text.startsWith("Cieľ o "), text)
+              }
+
+              @Test fun arrivalOffRouteAndMissingDataCases() {
+                  assertEquals("Ste v cieli", nextInstruction(plan, line[4]))
+                  assertEquals("Mimo trasy", nextInstruction(plan, GeoPoint(48.1, 16.02)))
+                  assertNull(nextInstruction(plan, null))
+                  assertNull(nextInstruction(NavPlan(line, emptyList()), line[1]))
               }
 
               @Test fun fitBoundsSpanFromCurrentAreaToMunich() {
@@ -2996,7 +3101,7 @@ jobs:
               raise SystemExit("Collapsed navigation overlay GPS line anchor missing or duplicated.")
           call_text = call_text.replace(
               gps_line,
-              "Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp); destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null)))?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }",
+              "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry), parseSteps(drivePrefs.getString(\"last_route_steps\", null))) }, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })?.let { Text(it, fontWeight = FontWeight.Bold, fontSize = 16.sp) }; Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp); destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null)))?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }",
               1
           )
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
@@ -3009,7 +3114,7 @@ jobs:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
           for needle in ('putString("last_destination_coordinates", result.destinationLonLat)',
                          "destinationCoordinates = result.destinationLonLat",
-                         "ROUTE_END_TOLERANCE_KM", "routeEndToDestinationKm",
+                         "ROUTE_END_TOLERANCE_KM", "routeEndToDestinationKm", "&steps=true", 'putString("last_route_steps", result.steps)',
                          "remove(\"last_destination_coordinates\")",
                          "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)"):
               if needle not in call_text:
@@ -3031,7 +3136,8 @@ jobs:
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
                          "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
                          "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
-                         'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }"):
+                         'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }",
+                         "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)'):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
           for obsolete in ("showWholeRoute", "onUserPan"):
