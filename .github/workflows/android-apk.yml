@@ -826,8 +826,9 @@ jobs:
               source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.withContext\n", 1)
           replacement = '''private fun RouteScreen(onStartNavigation: () -> Unit) {
               val routeContext = androidx.compose.ui.platform.LocalContext.current
-              var startPlace by rememberSaveable { mutableStateOf("Myjava") }
-              var destinationPlace by rememberSaveable { mutableStateOf("Piešťany") }
+              val routePreferences = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE)
+              var startPlace by rememberSaveable { mutableStateOf(routePreferences.getString("last_start", "Myjava") ?: "Myjava") }
+              var destinationPlace by rememberSaveable { mutableStateOf(routePreferences.getString("last_destination", "Piešťany") ?: "Piešťany") }
               var routeDistanceKm by rememberSaveable { mutableStateOf<String?>(null) }
               var routeStatus by rememberSaveable { mutableStateOf("Zadaj začiatok a cieľ a vypočítaj cestnú vzdialenosť.") }
               var calculating by rememberSaveable { mutableStateOf(false) }
@@ -885,14 +886,14 @@ jobs:
                   Text("Interaktívna mapa – testovacie mapové podklady", color = MaterialTheme.colorScheme.onSurfaceVariant)
                   OutlinedTextField(
                       value = startPlace,
-                      onValueChange = { startPlace = it; routeDistanceKm = null },
+                      onValueChange = { startPlace = it; routeDistanceKm = null; routePreferences.edit().putString("last_start", it).apply() },
                       label = { Text("Začiatok") },
                       modifier = Modifier.fillMaxWidth(),
                       singleLine = true
                   )
                   OutlinedTextField(
                       value = destinationPlace,
-                      onValueChange = { destinationPlace = it; routeDistanceKm = null },
+                      onValueChange = { destinationPlace = it; routeDistanceKm = null; routePreferences.edit().putString("last_destination", it).remove("last_destination_coordinates").apply() },
                       label = { Text("Cieľ") },
                       modifier = Modifier.fillMaxWidth(),
                       singleLine = true
@@ -909,7 +910,7 @@ jobs:
                                   val to = geocode(destinationPlace.trim())
                                   val km = calculateRoadDistance(from, to)
                                   routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)
-                                  routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()
+                                  routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).putString("last_destination_coordinates", "${to.first},${to.second}").apply()
                                   routeStatus = "Orientačná cestná vzdialenosť podľa verejnej mapovej služby."
                               } catch (e: Exception) {
                                   routeStatus = "Výpočet sa nepodaril: " + (e.message ?: "Skontroluj internet a názvy miest.")
@@ -1780,36 +1781,78 @@ jobs:
               val savedRouteDestination = drivePrefs.getString("last_destination", "")
               var liveLocation by remember { mutableStateOf<android.location.Location?>(null) }
               var gpsActive by rememberSaveable { mutableStateOf(false) }
+              var gpsStatus by remember { mutableStateOf("Pripájam GPS…") }
               val gpsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) gpsActive = true
+                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+                      gpsStatus = "Povolenie udelené, hľadám polohu…"
+                      gpsActive = true
+                  } else {
+                      gpsStatus = "Poloha nemá povolenie. Otvor Info a povoľ GPS."
+                  }
+              }
+              LaunchedEffect(savedRouteGeometry) {
+                  if (!savedRouteGeometry.isNullOrBlank()) {
+                      val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      if (fineGranted || coarseGranted) {
+                          gpsStatus = "Povolenie udelené, hľadám polohu…"
+                          gpsActive = true
+                      } else {
+                          gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                      }
+                  }
               }
               DisposableEffect(gpsActive) {
                   val manager = driveContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
                   val fine = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                   val coarse = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                   val listener = object : android.location.LocationListener {
-                      override fun onLocationChanged(location: android.location.Location) { liveLocation = location }
+                      override fun onLocationChanged(location: android.location.Location) {
+                          liveLocation = location
+                          gpsStatus = "Poloha aktualizovaná"
+                      }
                       @Deprecated("Deprecated by Android")
                       override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-                      override fun onProviderEnabled(provider: String) {}
-                      override fun onProviderDisabled(provider: String) {}
+                      override fun onProviderEnabled(provider: String) { gpsStatus = "Hľadám polohu…" }
+                      override fun onProviderDisabled(provider: String) { gpsStatus = "Poskytovateľ polohy vypnutý." }
                   }
                   if (gpsActive && (fine || coarse)) {
-                      listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER).forEach { provider ->
+                      val providers = listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+                          .filter { provider -> try { manager.isProviderEnabled(provider) } catch (_: Exception) { false } }
+                      if (providers.isEmpty()) {
+                          gpsStatus = "Zapni polohu v nastaveniach zariadenia."
+                      } else {
+                          gpsStatus = "Hľadám polohu…"
+                          providers.forEach { provider ->
                           try {
-                              if (manager.isProviderEnabled(provider)) {
-                                  manager.getLastKnownLocation(provider)?.let { last ->
-                                      if (liveLocation == null || last.time > (liveLocation?.time ?: 0L)) liveLocation = last
-                                  }
-                                  manager.requestLocationUpdates(provider, 2000L, 2f, listener, android.os.Looper.getMainLooper())
+                              manager.getLastKnownLocation(provider)?.let { last ->
+                                  if (liveLocation == null || last.time > (liveLocation?.time ?: 0L)) liveLocation = last
                               }
-                          } catch (_: SecurityException) { } catch (_: IllegalArgumentException) { }
+                              manager.requestLocationUpdates(provider, 1000L, 0f, listener, android.os.Looper.getMainLooper())
+                              if (android.os.Build.VERSION.SDK_INT >= 30) {
+                                  manager.getCurrentLocation(provider, null, androidx.core.content.ContextCompat.getMainExecutor(driveContext)) { location ->
+                                      if (location != null && (liveLocation == null || location.time >= (liveLocation?.time ?: 0L))) {
+                                          liveLocation = location
+                                          gpsStatus = "Poloha aktualizovaná"
+                                      }
+                                  }
+                              }
+                          } catch (_: SecurityException) {
+                              gpsStatus = "Povolenie polohy chýba. Otvor Info a povoľ GPS."
+                          } catch (_: IllegalArgumentException) {
+                              gpsStatus = "Poskytovateľ polohy nie je dostupný."
+                          }
+                          }
                       }
+                  } else if (gpsActive) {
+                      gpsStatus = "Povolenie polohy chýba. Otvor Info a povoľ GPS."
+                  } else if (savedRouteGeometry.isNullOrBlank()) {
+                      gpsStatus = "Najprv vypočítaj trasu."
                   }
                   onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
               }
               val speedText = liveLocation?.takeIf { it.hasSpeed() }?.let { String.format(java.util.Locale.getDefault(), "%.0f km/h", it.speed * 3.6f) } ?: "-- km/h"
-              val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: if (gpsActive) "Čakám na polohu GPS…" else "Živá poloha je vypnutá."
+              val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: gpsStatus
               Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                   Text("Jazda", fontSize = 25.sp, fontWeight = FontWeight.Bold)
                   Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1843,6 +1886,11 @@ jobs:
           replacement = replacement.replace("          ", "")
           s, count = pattern.subn(lambda _: replacement, s, count=1)
           if count != 1: raise SystemExit("DriveScreen could not be replaced exactly once; refusing to build.")
+          for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
+                         "DisposableEffect(gpsActive)", "manager.requestLocationUpdates(provider, 1000L, 0f, listener, android.os.Looper.getMainLooper())",
+                         "manager.getCurrentLocation(provider"):
+              if needle not in s:
+                  raise SystemExit("DriveScreen GPS startup verification failed: " + needle)
           p.write_text(s)
           print("Added user-controlled foreground GPS updates and live speed display to DriveScreen.")
           PY
@@ -2289,7 +2337,7 @@ jobs:
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }\n"
               "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = (if (infoPanelOpen && !isLandscape) Modifier.align(Alignment.TopCenter) else Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars)).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
-              "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }\n"
+              "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, fontWeight = FontWeight.Bold); Text(gpsText, fontSize = 12.sp) } }\n"
               "    if (infoPanelOpen) Column(\n"
               "        (if (isLandscape) Modifier.align(Alignment.BottomStart).width(320.dp).heightIn(max = (screenHeightDp * 0.55f).dp) else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = (screenHeightDp * 0.4f).dp))\n"
               "            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))\n"
@@ -2404,10 +2452,58 @@ jobs:
                   raise SystemExit(f"MapLibreMapView signature anchor missing: {needle}")
           compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
           call_text = compose.read_text()
-          for needle in ("fitRouteRequest = fitRouteRequest", "onUserPan = { showWholeRoute = true }",
+          for needle in ("fitRouteRequest = fitRouteRequest", "liveLocation = liveLocation", "onUserPan = { showWholeRoute = true }",
                          "var fitRouteRequest by rememberSaveable", 'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")'):
               if needle not in call_text:
                   raise SystemExit(f"Drive screen map toggle anchor missing: {needle}")
+
+          def replace_compose_once(old, replacement, label):
+              global call_text
+              if call_text.count(old) != 1:
+                  raise SystemExit(f"Drive screen followGps anchor missing or duplicated: {label}")
+              call_text = call_text.replace(old, replacement, 1)
+
+          replace_compose_once(
+              "var showWholeRoute by rememberSaveable { mutableStateOf(false) }",
+              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
+              "follow state"
+          )
+          replace_compose_once(
+              "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
+              "map call"
+          )
+          replace_compose_once(
+              "if (showWholeRoute) {\n"
+              "                    showWholeRoute = false\n"
+              "                } else {\n"
+              "                    showWholeRoute = true\n"
+              "                    fitRouteRequest += 1\n"
+              "                }",
+              "if (!followGps) {\n"
+              "                    followGps = true\n"
+              "                } else {\n"
+              "                    followGps = false\n"
+              "                    fitRouteRequest += 1\n"
+              "                }",
+              "follow/fit button action"
+          )
+          replace_compose_once(
+              'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")',
+              'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
+              "follow/fit button label"
+          )
+          replace_compose_once(
+              "if (showWholeRoute) {\n"
+              "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "    }",
+              "if (!followGps) {\n"
+              "        Button(onClick = { followGps = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "    }",
+              "floating recenter button"
+          )
+          compose.write_text(call_text)
+
           new = r'''
           package com.oli.routesave.ui.compose
 
@@ -2456,6 +2552,44 @@ jobs:
               }
           }
 
+          private fun destinationMarkerIcon(context: android.content.Context): org.maplibre.android.annotations.Icon {
+              val density = context.resources.displayMetrics.density
+              val bitmap = android.graphics.Bitmap.createBitmap(
+                  (36 * density).toInt().coerceAtLeast(1),
+                  (36 * density).toInt().coerceAtLeast(1),
+                  android.graphics.Bitmap.Config.ARGB_8888
+              )
+              val canvas = android.graphics.Canvas(bitmap)
+              canvas.scale(density, density)
+              val pin = android.graphics.Path().apply {
+                  moveTo(18f, 35f)
+                  cubicTo(15f, 29f, 5f, 21f, 5f, 14f)
+                  cubicTo(5f, 6f, 11f, 2f, 18f, 2f)
+                  cubicTo(25f, 2f, 31f, 6f, 31f, 14f)
+                  cubicTo(31f, 21f, 21f, 29f, 18f, 35f)
+                  close()
+              }
+              val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                  color = android.graphics.Color.rgb(0, 150, 70)
+                  style = android.graphics.Paint.Style.FILL
+              }
+              canvas.drawPath(pin, paint)
+              paint.color = android.graphics.Color.WHITE
+              canvas.drawCircle(18f, 14f, 5f, paint)
+              return org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(bitmap)
+          }
+
+          private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng? {
+              val coordinates = coordinatesText?.split(",") ?: return routePoints.lastOrNull()
+              if (coordinates.size != 2) return routePoints.lastOrNull()
+              val longitude = coordinates[0].toDoubleOrNull() ?: return routePoints.lastOrNull()
+              val latitude = coordinates[1].toDoubleOrNull() ?: return routePoints.lastOrNull()
+              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) {
+                  return routePoints.lastOrNull()
+              }
+              return LatLng(latitude, longitude)
+          }
+
           /**
            * Map view whose AndroidView.update never touches the camera.
            * Camera moves happen only from effects keyed on the state that needs them:
@@ -2468,9 +2602,10 @@ jobs:
               modifier: Modifier = Modifier,
               routeGeometry: String? = null,
               liveLocation: android.location.Location? = null,
-              showWholeRoute: Boolean = false,
+              destinationCoordinates: String? = null,
+              followGps: Boolean = true,
               fitRouteRequest: Int = 0,
-              onUserPan: () -> Unit = {}
+              onUserGesture: () -> Unit = {}
           ) {
               val context = LocalContext.current
               val lifecycleOwner = LocalLifecycleOwner.current
@@ -2498,8 +2633,11 @@ jobs:
               var styleReady by remember { mutableStateOf(false) }
               var routeLine by remember { mutableStateOf<Polyline?>(null) }
               var gpsMarker by remember { mutableStateOf<Marker?>(null) }
+              var destinationMarker by remember { mutableStateOf<Marker?>(null) }
               var followCentered by remember { mutableStateOf(false) }
-              val latestOnUserPan by rememberUpdatedState(onUserPan)
+              var lastFittedRouteGeometry by remember { mutableStateOf<String?>(null) }
+              var lastFitRouteRequest by remember { mutableStateOf(0) }
+              val latestOnUserGesture by rememberUpdatedState(onUserGesture)
 
               DisposableEffect(lifecycleOwner, mapView) {
                   val observer = LifecycleEventObserver { _, event ->
@@ -2532,7 +2670,7 @@ jobs:
                           .zoom(4.2)
                           .build()
                       readyMap.addOnCameraMoveStartedListener { reason ->
-                          if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserPan()
+                          if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserGesture()
                       }
                       readyMap.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) {
                           styleReady = true
@@ -2542,12 +2680,23 @@ jobs:
               }
 
               // Blue route line: redrawn only when the route changes.
-              LaunchedEffect(map, styleReady, routeGeometry) {
+              LaunchedEffect(map, styleReady, routeGeometry, destinationCoordinates) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   routeLine?.let { readyMap.removePolyline(it) }
                   routeLine = null
+                  destinationMarker?.let { readyMap.removeMarker(it) }
+                  destinationMarker = null
                   val points = routePoints(routeGeometry)
+                  val destination = destinationPoint(destinationCoordinates, points)
+                  if (destination != null) {
+                      destinationMarker = readyMap.addMarker(
+                          MarkerOptions()
+                              .position(destination)
+                              .title("Cieľ")
+                              .icon(destinationMarkerIcon(context))
+                      )
+                  }
                   if (points.size >= 2) {
                       routeLine = readyMap.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
                   }
@@ -2569,11 +2718,11 @@ jobs:
                   } catch (_: Exception) { }
               }
 
-              // Follow GPS only while following; a user gesture flips showWholeRoute to true and this stops.
-              LaunchedEffect(map, styleReady, liveLocation, showWholeRoute) {
+              // A direct user gesture pauses GPS follow; the recenter control enables it again.
+              LaunchedEffect(map, styleReady, liveLocation, followGps) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
-                  if (showWholeRoute) {
+                  if (!followGps) {
                       followCentered = false
                       return@LaunchedEffect
                   }
@@ -2587,18 +2736,27 @@ jobs:
                   }
               }
 
-              // Fit the whole route once when the route loads (without GPS) or when "Zobraziť celú trasu" is requested.
-              LaunchedEffect(map, styleReady, routeGeometry, fitRouteRequest) {
+              // Fit once per newly loaded route, or for each explicit fit request.
+              LaunchedEffect(map, styleReady, routeGeometry, destinationCoordinates, fitRouteRequest) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   val points = routePoints(routeGeometry)
                   if (points.size < 2) return@LaunchedEffect
-                  val requested = fitRouteRequest > 0 && showWholeRoute
-                  if (requested || liveLocation == null) {
-                      val builder = LatLngBounds.Builder()
-                      points.forEach { builder.include(it) }
-                      readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  val routeLoaded = routeGeometry != lastFittedRouteGeometry
+                  val requested = fitRouteRequest != lastFitRouteRequest
+                  if (!routeLoaded && !requested) return@LaunchedEffect
+                  if (routeLoaded && !requested && followGps && liveLocation != null) {
+                      lastFittedRouteGeometry = routeGeometry
+                      lastFitRouteRequest = fitRouteRequest
+                      return@LaunchedEffect
                   }
+                  val builder = LatLngBounds.Builder()
+                  points.forEach { builder.include(it) }
+                  destinationPoint(destinationCoordinates, points)?.let { builder.include(it) }
+                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"}")
+                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  lastFittedRouteGeometry = routeGeometry
+                  lastFitRouteRequest = fitRouteRequest
               }
 
               AndroidView(
@@ -2608,11 +2766,92 @@ jobs:
               )
           }
           '''.lstrip("\n")
-          for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, showWholeRoute)",
-                         "REASON_API_GESTURE", "fitRouteRequest", "Aktuálna poloha", "PolylineOptions()"):
+          for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, followGps)",
+                         "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
+                         "Aktuálna poloha", "PolylineOptions()",
+                         "var destinationMarker by remember { mutableStateOf<Marker?>(null) }",
+                         "val destination = destinationPoint(destinationCoordinates, points)", "routePoints.lastOrNull()", '.title("Cieľ")',
+                         ".position(destination)",
+                         "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
+                         "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
+                         "if (routeLoaded && !requested && followGps && liveLocation != null)",
+                         "lastFittedRouteGeometry = routeGeometry"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
+          for obsolete in ("showWholeRoute", "onUserPan", "latestOnUserPan"):
+              if obsolete in new:
+                  raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
+          call_text = compose.read_text()
+          follow_state = "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }"
+          if call_text.count(follow_state) != 1:
+              raise SystemExit("DriveScreen route-keyed followGps state anchor missing or duplicated.")
+          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }"
+          if call_text.count(map_call_anchor) != 1:
+              raise SystemExit("Final DriveScreen map call anchor missing or duplicated.")
+          call_text = call_text.replace(
+              map_call_anchor,
+              "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
+              1
+          )
+          gesture_callback = "onUserGesture = { followGps = false }"
+          if call_text.count(gesture_callback) != 1:
+              raise SystemExit("Final GPS gesture callback anchor missing or duplicated.")
+          call_text = call_text.replace(
+              gesture_callback,
+              'onUserGesture = { android.util.Log.d("OLIMap", "GPS follow paused: user map gesture"); followGps = false }',
+              1
+          )
+          manifest = root / "AndroidManifest.xml"
+          if not manifest.is_file():
+              raise SystemExit("Final AndroidManifest.xml is missing.")
+          import xml.etree.ElementTree as ET
+          android_ns = "{http://schemas.android.com/apk/res/android}"
+          try:
+              manifest_root = ET.parse(manifest).getroot()
+          except ET.ParseError as error:
+              raise SystemExit(f"Final AndroidManifest.xml is invalid: {error}")
+          declared_permissions = {
+              element.get(android_ns + "name")
+              for element in manifest_root.findall("uses-permission")
+          }
+          for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
+              if permission not in declared_permissions:
+                  raise SystemExit(f"Final AndroidManifest.xml is missing {permission}.")
+          for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
+                         "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION)",
+                         "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION)",
+                         "manager.getCurrentLocation(provider", "manager.requestLocationUpdates(provider, 1000L, 0f, listener",
+                         "override fun onLocationChanged(location: android.location.Location)", "gpsStatus",
+                         "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
+              if needle not in call_text:
+                  raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
+          for needle in ('putString("last_destination_coordinates", to.first.toString() + "," + to.second)',
+                         "remove(\"last_destination_coordinates\")",
+                         "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)"):
+              if needle not in call_text:
+                  raise SystemExit(f"Final generated route destination/follow wiring is missing: {needle}")
+          for needle in ("private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng?",
+                         "destinationPoint(destinationCoordinates, points)", "return LatLng(latitude, longitude)",
+                         "routePoints.lastOrNull()"):
+              if needle not in new:
+                  raise SystemExit(f"Final generated destination coordinate handling is missing: {needle}")
+          if 'addMarker(MarkerOptions().position(position).title("Aktuálna poloha"))' not in new:
+              raise SystemExit("Final generated MapLibre source is missing the live GPS marker.")
+          if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
+              raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
+          for needle in ("var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
+                         "followGps = followGps", "GPS follow paused: user map gesture",
+                         'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
+                         "Button(onClick = { followGps = true }"):
+              if needle not in call_text:
+                  raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
+          for obsolete in ("showWholeRoute", "onUserPan"):
+              if obsolete in call_text:
+                  raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
+          if "var followGps by rememberSaveable" in call_text:
+              raise SystemExit("Generated DriveScreen must not restore a previously paused GPS-follow state.")
+          compose.write_text(call_text)
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
