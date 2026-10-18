@@ -2703,6 +2703,9 @@ jobs:
                               .icon(destinationMarkerIcon(context))
                       )
                   }
+                  if (points.size >= 2 && destination != null) {
+                      android.util.Log.d("OLIMap", "Route start=${points.first().latitude},${points.first().longitude} end=${points.last().latitude},${points.last().longitude} destination=${destination.latitude},${destination.longitude} endToDestinationKm=${distanceKm(GeoPoint(points.last().latitude, points.last().longitude), GeoPoint(destination.latitude, destination.longitude))}")
+                  }
                   if (points.size >= 2) {
                       routeLine = readyMap.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
                   }
@@ -2831,6 +2834,35 @@ jobs:
 
           internal fun followLogMessage(before: Boolean, event: FollowEvent): String =
               "GPS follow " + before + " -> " + event.followAfter + " (" + event.label + ")"
+
+          internal fun distanceKm(a: GeoPoint, b: GeoPoint): Double {
+              val r = 6371.0088
+              val dLat = Math.toRadians(b.latitude - a.latitude)
+              val dLon = Math.toRadians(b.longitude - a.longitude)
+              val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(Math.toRadians(a.latitude)) * Math.cos(Math.toRadians(b.latitude)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+              return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)))
+          }
+
+          internal fun bearingDegrees(from: GeoPoint, to: GeoPoint): Double {
+              val lat1 = Math.toRadians(from.latitude)
+              val lat2 = Math.toRadians(to.latitude)
+              val dLon = Math.toRadians(to.longitude - from.longitude)
+              val y = Math.sin(dLon) * Math.cos(lat2)
+              val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+              return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+          }
+
+          internal fun compassLabel(bearing: Double): String {
+              val names = listOf("S", "SV", "V", "JV", "J", "JZ", "Z", "SZ")
+              return names[(((bearing % 360.0) + 360.0) % 360.0 / 45.0 + 0.5).toInt() % 8]
+          }
+
+          /** Text for the navigation overlay: straight-line distance and direction to the destination, which is off-screen while following GPS. */
+          internal fun destinationCue(current: GeoPoint?, destination: GeoPoint?): String? {
+              if (current == null || destination == null) return null
+              return String.format(java.util.Locale.US, "%.0f km vzdušnou čiarou, smer %s", distanceKm(current, destination), compassLabel(bearingDegrees(current, destination)))
+          }
           '''.lstrip("\n")
           (p.parent / "MapNavigationLogic.kt").write_text(logic)
 
@@ -2864,6 +2896,25 @@ jobs:
                   assertTrue(points.containsAll(route))
                   assertTrue(destination in points)
                   assertEquals(route, routeFitPoints(route, null))
+              }
+
+              @Test fun destinationCueUsesRealDestinationNotGps() {
+                  val mistelbach = GeoPoint(48.57385, 16.69180)
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val km = distanceKm(mistelbach, munich)
+                  assertTrue(km in 370.0..400.0, "distance " + km)
+                  assertEquals("Z", compassLabel(bearingDegrees(mistelbach, munich)))
+                  assertEquals(true, destinationCue(mistelbach, munich)!!.endsWith("smer Z"))
+                  assertNull(destinationCue(null, munich))
+                  assertNull(destinationCue(mistelbach, null))
+              }
+
+              @Test fun fitBoundsSpanFromCurrentAreaToMunich() {
+                  val start = GeoPoint(48.57385, 16.69180)
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val points = routeFitPoints(listOf(start, GeoPoint(48.3, 14.0)), munich)
+                  assertTrue(points.minOf { it.longitude } <= munich.longitude)
+                  assertTrue(points.maxOf { it.longitude } >= start.longitude)
               }
 
               @Test fun followEventsSetExpectedState() {
@@ -2926,7 +2977,7 @@ jobs:
               raise SystemExit("Collapsed navigation overlay GPS line anchor missing or duplicated.")
           call_text = call_text.replace(
               gps_line,
-              "Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp) } }",
+              "Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp); destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null)))?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }",
               1
           )
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
@@ -2959,7 +3010,7 @@ jobs:
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
                          "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
                          "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
-                         'Text("Cieľ: " + (savedRouteDestination ?: "")'):
+                         'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }"):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
           for obsolete in ("showWholeRoute", "onUserPan"):
