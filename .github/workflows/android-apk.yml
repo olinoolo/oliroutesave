@@ -2551,6 +2551,33 @@ jobs:
               }
           }
 
+          private fun destinationMarkerIcon(context: android.content.Context): org.maplibre.android.annotations.Icon {
+              val density = context.resources.displayMetrics.density
+              val bitmap = android.graphics.Bitmap.createBitmap(
+                  (36 * density).toInt().coerceAtLeast(1),
+                  (36 * density).toInt().coerceAtLeast(1),
+                  android.graphics.Bitmap.Config.ARGB_8888
+              )
+              val canvas = android.graphics.Canvas(bitmap)
+              canvas.scale(density, density)
+              val pin = android.graphics.Path().apply {
+                  moveTo(18f, 35f)
+                  cubicTo(15f, 29f, 5f, 21f, 5f, 14f)
+                  cubicTo(5f, 6f, 11f, 2f, 18f, 2f)
+                  cubicTo(25f, 2f, 31f, 6f, 31f, 14f)
+                  cubicTo(31f, 21f, 21f, 29f, 18f, 35f)
+                  close()
+              }
+              val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                  color = android.graphics.Color.rgb(0, 150, 70)
+                  style = android.graphics.Paint.Style.FILL
+              }
+              canvas.drawPath(pin, paint)
+              paint.color = android.graphics.Color.WHITE
+              canvas.drawCircle(18f, 14f, 5f, paint)
+              return org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(bitmap)
+          }
+
           /**
            * Map view whose AndroidView.update never touches the camera.
            * Camera moves happen only from effects keyed on the state that needs them:
@@ -2593,6 +2620,7 @@ jobs:
               var styleReady by remember { mutableStateOf(false) }
               var routeLine by remember { mutableStateOf<Polyline?>(null) }
               var gpsMarker by remember { mutableStateOf<Marker?>(null) }
+              var destinationMarker by remember { mutableStateOf<Marker?>(null) }
               var followCentered by remember { mutableStateOf(false) }
               var lastFittedRouteGeometry by remember { mutableStateOf<String?>(null) }
               var lastFitRouteRequest by remember { mutableStateOf(0) }
@@ -2644,7 +2672,18 @@ jobs:
                   if (!styleReady) return@LaunchedEffect
                   routeLine?.let { readyMap.removePolyline(it) }
                   routeLine = null
+                  destinationMarker?.let { readyMap.removeMarker(it) }
+                  destinationMarker = null
                   val points = routePoints(routeGeometry)
+                  val destination = points.lastOrNull()
+                  if (destination != null) {
+                      destinationMarker = readyMap.addMarker(
+                          MarkerOptions()
+                              .position(destination)
+                              .title("Cieľ")
+                              .icon(destinationMarkerIcon(context))
+                      )
+                  }
                   if (points.size >= 2) {
                       routeLine = readyMap.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
                   }
@@ -2715,6 +2754,11 @@ jobs:
           for needle in ("update = { }", "requestDisallowInterceptTouchEvent(true)", "LaunchedEffect(map, styleReady, liveLocation, followGps)",
                          "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
                          "Aktuálna poloha", "PolylineOptions()",
+                         "var destinationMarker by remember { mutableStateOf<Marker?>(null) }",
+                         "val destination = points.lastOrNull()", '.title("Cieľ")',
+                         ".position(destination)",
+                         "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
+                         "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
                          "if (routeLoaded && !requested && followGps && liveLocation != null)",
                          "lastFittedRouteGeometry = routeGeometry"):
               if needle not in new:
@@ -2750,6 +2794,8 @@ jobs:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
           if 'addMarker(MarkerOptions().position(position).title("Aktuálna poloha"))' not in new:
               raise SystemExit("Final generated MapLibre source is missing the live GPS marker.")
+          if 'val destination = points.lastOrNull()' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
+              raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
           for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
                          "followGps = followGps", "onUserGesture = { followGps = false }",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
