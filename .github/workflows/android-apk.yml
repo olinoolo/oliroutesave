@@ -2465,12 +2465,17 @@ jobs:
 
           replace_compose_once(
               "var showWholeRoute by rememberSaveable { mutableStateOf(false) }",
-              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
+              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }\n"
+              "              fun updateFollow(event: FollowEvent) {\n"
+              "                  android.util.Log.d(\"OLIFollow\", followLogMessage(followGps, event))\n"
+              "                  followGps = event.followAfter\n"
+              "              }\n"
+              "              LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }",
               "follow state"
           )
           replace_compose_once(
               "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
-              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }",
               "map call"
           )
           replace_compose_once(
@@ -2481,9 +2486,9 @@ jobs:
               "                    fitRouteRequest += 1\n"
               "                }",
               "if (!followGps) {\n"
-              "                    followGps = true\n"
+              "                    updateFollow(FollowEvent.RESUME_BUTTON)\n"
               "                } else {\n"
-              "                    followGps = false\n"
+              "                    updateFollow(FollowEvent.WHOLE_ROUTE_REQUEST)\n"
               "                    fitRouteRequest += 1\n"
               "                }",
               "follow/fit button action"
@@ -2498,7 +2503,7 @@ jobs:
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }",
               "if (!followGps) {\n"
-              "        Button(onClick = { followGps = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "        Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }",
               "floating recenter button"
           )
@@ -2580,14 +2585,8 @@ jobs:
           }
 
           private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng? {
-              val coordinates = coordinatesText?.split(",") ?: return routePoints.lastOrNull()
-              if (coordinates.size != 2) return routePoints.lastOrNull()
-              val longitude = coordinates[0].toDoubleOrNull() ?: return routePoints.lastOrNull()
-              val latitude = coordinates[1].toDoubleOrNull() ?: return routePoints.lastOrNull()
-              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) {
-                  return routePoints.lastOrNull()
-              }
-              return LatLng(latitude, longitude)
+              val routeEnd = routePoints.lastOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+              return resolveDestination(coordinatesText, routeEnd)?.let { LatLng(it.latitude, it.longitude) }
           }
 
           /**
@@ -2670,6 +2669,13 @@ jobs:
                           .zoom(4.2)
                           .build()
                       readyMap.addOnCameraMoveStartedListener { reason ->
+                          val reasonName = when (reason) {
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE -> "user gesture"
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_DEVELOPER_ANIMATION -> "developer animation"
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_API_ANIMATION -> "api animation"
+                              else -> "unknown $reason"
+                          }
+                          android.util.Log.d("OLIMap", "Camera move started: $reasonName")
                           if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserGesture()
                       }
                       readyMap.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) {
@@ -2750,11 +2756,18 @@ jobs:
                       lastFitRouteRequest = fitRouteRequest
                       return@LaunchedEffect
                   }
+                  val destination = destinationPoint(destinationCoordinates, points)
+                  val fitPoints = routeFitPoints(
+                      points.map { GeoPoint(it.latitude, it.longitude) },
+                      destination?.let { GeoPoint(it.latitude, it.longitude) }
+                  )
                   val builder = LatLngBounds.Builder()
-                  points.forEach { builder.include(it) }
-                  destinationPoint(destinationCoordinates, points)?.let { builder.include(it) }
-                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"}")
-                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  fitPoints.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
+                  val density = context.resources.displayMetrics.density
+                  val sidePadding = (minOf(mapView.width, mapView.height) * 0.12f).toInt().coerceAtLeast((24 * density).toInt())
+                  val topPadding = sidePadding + (36 * density).toInt()
+                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"} (${fitPoints.size} fit points)")
+                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), sidePadding, topPadding, sidePadding, sidePadding))
                   lastFittedRouteGeometry = routeGeometry
                   lastFitRouteRequest = fitRouteRequest
               }
@@ -2770,7 +2783,9 @@ jobs:
                          "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
                          "Aktuálna poloha", "PolylineOptions()",
                          "var destinationMarker by remember { mutableStateOf<Marker?>(null) }",
-                         "val destination = destinationPoint(destinationCoordinates, points)", "routePoints.lastOrNull()", '.title("Cieľ")',
+                         "val destination = destinationPoint(destinationCoordinates, points)", "resolveDestination(coordinatesText, routeEnd)", '.title("Cieľ")',
+                         "routeFitPoints(", "fitPoints.forEach { builder.include(LatLng(it.latitude, it.longitude)) }",
+                         "Camera move started: $reasonName",
                          ".position(destination)",
                          "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
                          "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
@@ -2782,11 +2797,99 @@ jobs:
               if obsolete in new:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
+
+          # Pure (Android-free) navigation-map logic, kept separate so it can be unit tested on the JVM.
+          logic = r'''
+          package com.oli.routesave.ui.compose
+
+          internal data class GeoPoint(val latitude: Double, val longitude: Double)
+
+          /** Parses the "longitude,latitude" text saved by the route planner; null when missing or invalid. */
+          internal fun parseLonLat(text: String?): GeoPoint? {
+              val parts = text?.split(",") ?: return null
+              if (parts.size != 2) return null
+              val longitude = parts[0].trim().toDoubleOrNull() ?: return null
+              val latitude = parts[1].trim().toDoubleOrNull() ?: return null
+              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) return null
+              return GeoPoint(latitude, longitude)
+          }
+
+          /** Saved geocoded destination wins; the route end is only a fallback for legacy routes. Never the GPS position. */
+          internal fun resolveDestination(coordinatesText: String?, routeEnd: GeoPoint?): GeoPoint? =
+              parseLonLat(coordinatesText) ?: routeEnd
+
+          /** Points the "whole route" camera must contain: all route geometry plus the destination. */
+          internal fun routeFitPoints(route: List<GeoPoint>, destination: GeoPoint?): List<GeoPoint> =
+              if (destination == null) route else route + destination
+
+          internal enum class FollowEvent(val label: String, val followAfter: Boolean) {
+              NAVIGATION_ENTRY("navigation entry", true),
+              USER_GESTURE("user map gesture", false),
+              WHOLE_ROUTE_REQUEST("whole-route button", false),
+              RESUME_BUTTON("Sledovať GPS button", true)
+          }
+
+          internal fun followLogMessage(before: Boolean, event: FollowEvent): String =
+              "GPS follow " + before + " -> " + event.followAfter + " (" + event.label + ")"
+          '''.lstrip("\n")
+          (p.parent / "MapNavigationLogic.kt").write_text(logic)
+
+          logic_test = r'''
+          package com.oli.routesave.ui.compose
+
+          import kotlin.test.Test
+          import kotlin.test.assertEquals
+          import kotlin.test.assertNull
+          import kotlin.test.assertTrue
+
+          class MapNavigationLogicTest {
+              private val route = listOf(GeoPoint(48.57, 17.18), GeoPoint(48.2, 11.6))
+
+              @Test fun savedDestinationIsLonLatAndWinsOverRouteEnd() {
+                  val destination = resolveDestination("11.5753822,48.1371079", GeoPoint(48.2, 11.6))
+                  assertEquals(GeoPoint(48.1371079, 11.5753822), destination)
+              }
+
+              @Test fun missingOrInvalidCoordinatesFallBackToRouteEnd() {
+                  val end = GeoPoint(48.2, 11.6)
+                  for (text in listOf(null, "", "abc", "1,2,3", "200,10", "10,95", "NaN,10")) {
+                      assertEquals(end, resolveDestination(text, end), "input: " + text)
+                  }
+                  assertNull(resolveDestination(null, null))
+              }
+
+              @Test fun fitPointsContainRouteAndDestination() {
+                  val destination = GeoPoint(48.1371079, 11.5753822)
+                  val points = routeFitPoints(route, destination)
+                  assertTrue(points.containsAll(route))
+                  assertTrue(destination in points)
+                  assertEquals(route, routeFitPoints(route, null))
+              }
+
+              @Test fun followEventsSetExpectedState() {
+                  assertTrue(FollowEvent.NAVIGATION_ENTRY.followAfter)
+                  assertTrue(FollowEvent.RESUME_BUTTON.followAfter)
+                  assertTrue(!FollowEvent.USER_GESTURE.followAfter)
+                  assertTrue(!FollowEvent.WHOLE_ROUTE_REQUEST.followAfter)
+              }
+
+              @Test fun followLogDistinguishesGestureFromWholeRouteFit() {
+                  val gesture = followLogMessage(true, FollowEvent.USER_GESTURE)
+                  val fit = followLogMessage(true, FollowEvent.WHOLE_ROUTE_REQUEST)
+                  assertEquals("GPS follow true -> false (user map gesture)", gesture)
+                  assertEquals("GPS follow true -> false (whole-route button)", fit)
+                  assertTrue(gesture != fit)
+              }
+          }
+          '''.lstrip("\n")
+          test_dir = Path("android-project/app/src/test/java/com/oli/routesave/ui/compose")
+          test_dir.mkdir(parents=True, exist_ok=True)
+          (test_dir / "MapNavigationLogicTest.kt").write_text(logic_test)
           call_text = compose.read_text()
           follow_state = "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }"
           if call_text.count(follow_state) != 1:
               raise SystemExit("DriveScreen route-keyed followGps state anchor missing or duplicated.")
-          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }"
+          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }"
           if call_text.count(map_call_anchor) != 1:
               raise SystemExit("Final DriveScreen map call anchor missing or duplicated.")
           call_text = call_text.replace(
@@ -2794,12 +2897,12 @@ jobs:
               "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
               1
           )
-          gesture_callback = "onUserGesture = { followGps = false }"
-          if call_text.count(gesture_callback) != 1:
-              raise SystemExit("Final GPS gesture callback anchor missing or duplicated.")
+          preview_call = "MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry)"
+          if call_text.count(preview_call) != 1:
+              raise SystemExit("Route preview map call anchor missing or duplicated.")
           call_text = call_text.replace(
-              gesture_callback,
-              'onUserGesture = { android.util.Log.d("OLIMap", "GPS follow paused: user map gesture"); followGps = false }',
+              preview_call,
+              "MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates)",
               1
           )
           manifest = root / "AndroidManifest.xml"
@@ -2818,6 +2921,14 @@ jobs:
           for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
               if permission not in declared_permissions:
                   raise SystemExit(f"Final AndroidManifest.xml is missing {permission}.")
+          gps_line = "Text(gpsText, fontSize = 12.sp) } }"
+          if call_text.count(gps_line) != 1:
+              raise SystemExit("Collapsed navigation overlay GPS line anchor missing or duplicated.")
+          call_text = call_text.replace(
+              gps_line,
+              "Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp) } }",
+              1
+          )
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION)",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION)",
@@ -2832,7 +2943,7 @@ jobs:
               if needle not in call_text:
                   raise SystemExit(f"Final generated route destination/follow wiring is missing: {needle}")
           for needle in ("private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng?",
-                         "destinationPoint(destinationCoordinates, points)", "return LatLng(latitude, longitude)",
+                         "destinationPoint(destinationCoordinates, points)", "resolveDestination(coordinatesText, routeEnd)",
                          "routePoints.lastOrNull()"):
               if needle not in new:
                   raise SystemExit(f"Final generated destination coordinate handling is missing: {needle}")
@@ -2841,14 +2952,21 @@ jobs:
           if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
               raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
           for needle in ("var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
-                         "followGps = followGps", "GPS follow paused: user map gesture",
+                         "followGps = followGps", "fun updateFollow(event: FollowEvent)", "followLogMessage(followGps, event)",
+                         "LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }",
+                         "onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }",
+                         "updateFollow(FollowEvent.WHOLE_ROUTE_REQUEST)",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
-                         "Button(onClick = { followGps = true }"):
+                         "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
+                         "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
+                         'Text("Cieľ: " + (savedRouteDestination ?: "")'):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
           for obsolete in ("showWholeRoute", "onUserPan"):
               if obsolete in call_text:
                   raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
+          if call_text.count("followGps = false") or call_text.count("followGps = true"):
+              raise SystemExit("Generated DriveScreen changes followGps outside updateFollow; every change must be logged.")
           if "var followGps by rememberSaveable" in call_text:
               raise SystemExit("Generated DriveScreen must not restore a previously paused GPS-follow state.")
           compose.write_text(call_text)

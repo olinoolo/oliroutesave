@@ -15,6 +15,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     var km by rememberSaveable { mutableStateOf<Double?>(null) }
     var minutes by rememberSaveable { mutableStateOf<Double?>(null) }
     var routeGeometry by rememberSaveable { mutableStateOf<String?>(null) }
+    var destinationCoordinates by rememberSaveable { mutableStateOf<String?>(null) }
     var permissionGrantedTrigger by rememberSaveable { mutableStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -88,7 +89,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Plánovanie trasy", fontSize = 25.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(value = origin, onValueChange = { origin = it; km = null; minutes = null; routeGeometry = null }, label = { Text("Štart (predvolene aktuálna poloha)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null; routeGeometry = null; context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().remove("last_destination_coordinates").apply() }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = destination, onValueChange = { destination = it; km = null; minutes = null; routeGeometry = null; destinationCoordinates = null; context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().remove("last_destination_coordinates").apply() }, label = { Text("Cieľ") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         LaunchedEffect(origin, destination, permissionGrantedTrigger) {
             if (origin.isNotBlank() && destination.isNotBlank()) {
                 kotlinx.coroutines.delay(700)
@@ -105,6 +106,7 @@ private fun RouteScreen(onStartNavigation: () -> Unit) {
                         km = result.first
                         minutes = result.second
                         routeGeometry = result.third
+                        destinationCoordinates = context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).getString("last_destination_coordinates", null)
                         message = "Vzdialenosť vypočítaná podľa cestných údajov."
                         context.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", result.first.toFloat()).putFloat("last_duration_minutes", result.second.toFloat()).putString("last_origin", origin.trim()).putString("last_destination", destination.trim()).putString("last_route_geometry", result.third).apply()
                     } catch (e: Exception) {
