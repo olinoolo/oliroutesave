@@ -826,8 +826,9 @@ jobs:
               source = source.replace(package_marker, package_marker + "\nimport kotlinx.coroutines.withContext\n", 1)
           replacement = '''private fun RouteScreen(onStartNavigation: () -> Unit) {
               val routeContext = androidx.compose.ui.platform.LocalContext.current
-              var startPlace by rememberSaveable { mutableStateOf("Myjava") }
-              var destinationPlace by rememberSaveable { mutableStateOf("Piešťany") }
+              val routePreferences = routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE)
+              var startPlace by rememberSaveable { mutableStateOf(routePreferences.getString("last_start", "Myjava") ?: "Myjava") }
+              var destinationPlace by rememberSaveable { mutableStateOf(routePreferences.getString("last_destination", "Piešťany") ?: "Piešťany") }
               var routeDistanceKm by rememberSaveable { mutableStateOf<String?>(null) }
               var routeStatus by rememberSaveable { mutableStateOf("Zadaj začiatok a cieľ a vypočítaj cestnú vzdialenosť.") }
               var calculating by rememberSaveable { mutableStateOf(false) }
@@ -885,14 +886,14 @@ jobs:
                   Text("Interaktívna mapa – testovacie mapové podklady", color = MaterialTheme.colorScheme.onSurfaceVariant)
                   OutlinedTextField(
                       value = startPlace,
-                      onValueChange = { startPlace = it; routeDistanceKm = null },
+                      onValueChange = { startPlace = it; routeDistanceKm = null; routePreferences.edit().putString("last_start", it).apply() },
                       label = { Text("Začiatok") },
                       modifier = Modifier.fillMaxWidth(),
                       singleLine = true
                   )
                   OutlinedTextField(
                       value = destinationPlace,
-                      onValueChange = { destinationPlace = it; routeDistanceKm = null },
+                      onValueChange = { destinationPlace = it; routeDistanceKm = null; routePreferences.edit().putString("last_destination", it).remove("last_destination_coordinates").apply() },
                       label = { Text("Cieľ") },
                       modifier = Modifier.fillMaxWidth(),
                       singleLine = true
