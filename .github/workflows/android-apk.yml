@@ -2735,17 +2735,26 @@ jobs:
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   if (!followGps) {
+                      if (followCentered) readyMap.setPadding(0, 0, 0, 0)
                       followCentered = false
                       return@LaunchedEffect
                   }
                   val location = liveLocation ?: return@LaunchedEffect
                   val target = LatLng(location.latitude, location.longitude)
+                  // Active navigation view: close zoom, tilted, course-up, vehicle in the lower part of the screen.
+                  val course = courseBearing(location.hasBearing(), location.bearing, if (location.hasSpeed()) location.speed else 0f)
+                  val zoom = if (!followCentered) FOLLOW_ZOOM else readyMap.cameraPosition.zoom
                   if (!followCentered) {
                       followCentered = true
-                      readyMap.easeCamera(CameraUpdateFactory.newLatLngZoom(target, 13.5))
-                  } else {
-                      readyMap.easeCamera(CameraUpdateFactory.newLatLng(target))
+                      readyMap.setPadding(0, (mapView.height * 0.35f).toInt(), 0, 0)
                   }
+                  val cameraPosition = CameraPosition.Builder()
+                      .target(target)
+                      .zoom(zoom)
+                      .tilt(FOLLOW_TILT)
+                      .bearing(course ?: readyMap.cameraPosition.bearing)
+                      .build()
+                  readyMap.easeCamera(CameraUpdateFactory.newCameraPosition(cameraPosition), 900)
               }
 
               // Fit once per newly loaded route, or for each explicit fit request.
@@ -2981,6 +2990,14 @@ jobs:
 
           internal const val OFF_ROUTE_KM = 0.15
 
+          internal const val FOLLOW_ZOOM = 17.0
+          internal const val FOLLOW_TILT = 50.0
+          internal const val MIN_COURSE_SPEED_MPS = 1.5f
+
+          /** Course-up bearing for the follow camera; GPS bearing is only trusted while moving, otherwise null keeps the current bearing. */
+          internal fun courseBearing(hasBearing: Boolean, courseDegrees: Float, speedMps: Float): Double? =
+              if (hasBearing && speedMps >= MIN_COURSE_SPEED_MPS) ((courseDegrees.toDouble() % 360.0) + 360.0) % 360.0 else null
+
           /** Text for the navigation overlay: straight-line distance and direction to the destination, which is off-screen while following GPS. */
           internal fun destinationCue(current: GeoPoint?, destination: GeoPoint?): String? {
               if (current == null || destination == null) return null
@@ -3105,6 +3122,14 @@ jobs:
                   assertNull(speech.next(null))
               }
 
+              @Test fun courseBearingOnlyWhenMovingWithBearing() {
+                  assertEquals(90.0, courseBearing(true, 90f, 10f)!!, 0.001)
+                  assertEquals(350.0, courseBearing(true, -10f, 10f)!!, 0.001)
+                  assertNull(courseBearing(true, 90f, 0.5f))
+                  assertNull(courseBearing(false, 90f, 10f))
+                  assertTrue(FOLLOW_ZOOM >= 16.0 && FOLLOW_TILT > 0.0)
+              }
+
               @Test fun speechIsDrivenByRealPlanProgress() {
                   val speech = SpokenGuidance()
                   val spoken = (0..4).mapNotNull { speech.next(nextGuidance(plan, line[it])) }
@@ -3214,20 +3239,47 @@ jobs:
           for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
               if permission not in declared_permissions:
                   raise SystemExit(f"Final AndroidManifest.xml is missing {permission}.")
-          gps_line = "Text(gpsText, fontSize = 12.sp) } }"
-          if call_text.count(gps_line) != 1:
-              raise SystemExit("Collapsed navigation overlay GPS line anchor missing or duplicated.")
-          call_text = call_text.replace(
-              gps_line,
-              "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry), parseSteps(drivePrefs.getString(\"last_route_steps\", null))) }, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })?.let { Text(it, fontWeight = FontWeight.Bold, fontSize = 16.sp) }; Text(gpsText, fontSize = 12.sp); Text(\"Cieľ: \" + (savedRouteDestination ?: \"\") + (parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null))?.let { String.format(java.util.Locale.getDefault(), \" (%.4f, %.4f)\", it.latitude, it.longitude) } ?: \"\"), fontSize = 12.sp); destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, parseLonLat(drivePrefs.getString(\"last_destination_coordinates\", null)))?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.Bold) } } }",
-              1
-          )
+          overlay_start = "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f)"
+          overlay_end = "Text(gpsText, fontSize = 12.sp) } }"
+          if call_text.count(overlay_start) != 1 or call_text.count(overlay_end) != 1:
+              raise SystemExit("Collapsed navigation overlay anchors missing or duplicated.")
+          overlay_from = call_text.index(overlay_start)
+          overlay_to = call_text.index(overlay_end, overlay_from) + len(overlay_end)
+          nav_overlay = r'''    val navGuidanceText = nextInstruction(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })
+              val navDestination = parseLonLat(drivePrefs.getString("last_destination_coordinates", null))
+              val navView = androidx.compose.ui.platform.LocalView.current
+              DisposableEffect(navView) {
+                  navView.keepScreenOn = true
+                  onDispose { navView.keepScreenOn = false }
+              }
+              if (!infoPanelOpen) {
+                  navGuidanceText?.let { instruction ->
+            Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f), shape = RoundedCornerShape(16.dp), modifier = Modifier.align(Alignment.TopCenter).padding(start = 12.dp, end = 12.dp, top = 64.dp)) {
+                Text(instruction, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 3, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            }
+                  }
+                  Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) {
+            Text(String.format(java.util.Locale.getDefault(), "%.0f km · ", remainingKm) + arrivalText + " · " + remainingDurationText + " · " + speedText, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                  }
+              }'''
+          call_text = call_text[:overlay_from] + nav_overlay + call_text[overlay_to:]
+          info_anchor = "Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(gpsText, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }"
+          if call_text.count(info_anchor) != 1:
+              raise SystemExit("Info panel GPS line anchor missing or duplicated.")
+          info_debug = r'''
+                  Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Cieľ: " + (savedRouteDestination ?: "") + (navDestination?.let { String.format(java.util.Locale.getDefault(), " (%.4f, %.4f)", it.latitude, it.longitude) } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, navDestination)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) }
+            }
+                  }'''
+          call_text = call_text.replace(info_anchor, info_anchor + info_debug, 1)
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION)",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION)",
                          "manager.getCurrentLocation(provider", "manager.requestLocationUpdates(provider, 1000L, 0f, listener",
                          "override fun onLocationChanged(location: android.location.Location)", "gpsStatus",
-                         "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
+                         "Text(gpsText, modifier = Modifier.padding(12.dp)", "liveLocation = liveLocation"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
           for needle in ('putString("last_destination_coordinates", result.destinationLonLat)',
@@ -3255,12 +3307,24 @@ jobs:
                          "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
                          "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
                          'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }",
-                         "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
+                         "nextInstruction(navPlan, liveLocation", "val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
+                         "navView.keepScreenOn = true", "onDispose { navView.keepScreenOn = false }",
                          "val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }", "spokenGuidance.next(nextGuidance(navPlan,",
                          "guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH", "guidanceTts?.stop(); guidanceTts?.shutdown()",
                          "Locale(\"sk\", \"SK\")"):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
+          if "Text(gpsText, fontSize = 12.sp)" in call_text:
+              raise SystemExit("Diagnostic GPS text must not be part of the collapsed navigation overlay.")
+          overlay_scope = call_text[call_text.index("    if (!infoPanelOpen) {"):call_text.index("    if (infoPanelOpen) Column(")]
+          for diagnostic in ("gpsText", "navDestination", "destinationCue", "savedRouteDestination"):
+              if diagnostic in overlay_scope:
+                  raise SystemExit(f"Collapsed navigation overlay must not show diagnostics: {diagnostic}")
+          for needle in ("courseBearing(location.hasBearing()", "CameraPosition.Builder()", ".tilt(FOLLOW_TILT)", ".zoom(zoom)", "FOLLOW_ZOOM", "readyMap.setPadding(0, 0, 0, 0)"):
+              if needle not in new:
+                  raise SystemExit(f"Final generated active-navigation camera is missing: {needle}")
+          if "13.5" in new:
+              raise SystemExit("Final generated follow camera still uses the old overview zoom.")
           for obsolete in ("showWholeRoute", "onUserPan"):
               if obsolete in call_text:
                   raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
