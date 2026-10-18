@@ -1783,6 +1783,17 @@ jobs:
               val gpsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
                   if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) gpsActive = true
               }
+              LaunchedEffect(savedRouteGeometry) {
+                  if (!savedRouteGeometry.isNullOrBlank()) {
+                      val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                      if (fineGranted || coarseGranted) {
+                          gpsActive = true
+                      } else {
+                          gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                      }
+                  }
+              }
               DisposableEffect(gpsActive) {
                   val manager = driveContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
                   val fine = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -1843,6 +1854,10 @@ jobs:
           replacement = replacement.replace("          ", "")
           s, count = pattern.subn(lambda _: replacement, s, count=1)
           if count != 1: raise SystemExit("DriveScreen could not be replaced exactly once; refusing to build.")
+          for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
+                         "DisposableEffect(gpsActive)", "manager.requestLocationUpdates(provider, 2000L, 2f, listener, android.os.Looper.getMainLooper())"):
+              if needle not in s:
+                  raise SystemExit("DriveScreen GPS startup verification failed: " + needle)
           p.write_text(s)
           print("Added user-controlled foreground GPS updates and live speed display to DriveScreen.")
           PY
@@ -2404,7 +2419,7 @@ jobs:
                   raise SystemExit(f"MapLibreMapView signature anchor missing: {needle}")
           compose = root / "java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt"
           call_text = compose.read_text()
-          for needle in ("fitRouteRequest = fitRouteRequest", "onUserPan = { showWholeRoute = true }",
+          for needle in ("fitRouteRequest = fitRouteRequest", "liveLocation = liveLocation", "onUserPan = { showWholeRoute = true }",
                          "var fitRouteRequest by rememberSaveable", 'Text(if (showWholeRoute) "Sledovať GPS" else "Zobraziť celú trasu")'):
               if needle not in call_text:
                   raise SystemExit(f"Drive screen map toggle anchor missing: {needle}")
