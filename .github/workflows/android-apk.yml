@@ -1780,14 +1780,21 @@ jobs:
               val savedRouteDestination = drivePrefs.getString("last_destination", "")
               var liveLocation by remember { mutableStateOf<android.location.Location?>(null) }
               var gpsActive by rememberSaveable { mutableStateOf(false) }
+              var gpsStatus by remember { mutableStateOf("Pripájam GPS…") }
               val gpsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) gpsActive = true
+                  if (grants[android.Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+                      gpsStatus = "Povolenie udelené, hľadám polohu…"
+                      gpsActive = true
+                  } else {
+                      gpsStatus = "Poloha nemá povolenie. Otvor Info a povoľ GPS."
+                  }
               }
               LaunchedEffect(savedRouteGeometry) {
                   if (!savedRouteGeometry.isNullOrBlank()) {
                       val fineGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                       val coarseGranted = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                       if (fineGranted || coarseGranted) {
+                          gpsStatus = "Povolenie udelené, hľadám polohu…"
                           gpsActive = true
                       } else {
                           gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -1799,28 +1806,52 @@ jobs:
                   val fine = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                   val coarse = androidx.core.content.ContextCompat.checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
                   val listener = object : android.location.LocationListener {
-                      override fun onLocationChanged(location: android.location.Location) { liveLocation = location }
+                      override fun onLocationChanged(location: android.location.Location) {
+                          liveLocation = location
+                          gpsStatus = "Poloha aktualizovaná"
+                      }
                       @Deprecated("Deprecated by Android")
                       override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-                      override fun onProviderEnabled(provider: String) {}
-                      override fun onProviderDisabled(provider: String) {}
+                      override fun onProviderEnabled(provider: String) { gpsStatus = "Hľadám polohu…" }
+                      override fun onProviderDisabled(provider: String) { gpsStatus = "Poskytovateľ polohy vypnutý." }
                   }
                   if (gpsActive && (fine || coarse)) {
-                      listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER).forEach { provider ->
+                      val providers = listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+                          .filter { provider -> try { manager.isProviderEnabled(provider) } catch (_: Exception) { false } }
+                      if (providers.isEmpty()) {
+                          gpsStatus = "Zapni polohu v nastaveniach zariadenia."
+                      } else {
+                          gpsStatus = "Hľadám polohu…"
+                          providers.forEach { provider ->
                           try {
-                              if (manager.isProviderEnabled(provider)) {
-                                  manager.getLastKnownLocation(provider)?.let { last ->
-                                      if (liveLocation == null || last.time > (liveLocation?.time ?: 0L)) liveLocation = last
-                                  }
-                                  manager.requestLocationUpdates(provider, 2000L, 2f, listener, android.os.Looper.getMainLooper())
+                              manager.getLastKnownLocation(provider)?.let { last ->
+                                  if (liveLocation == null || last.time > (liveLocation?.time ?: 0L)) liveLocation = last
                               }
-                          } catch (_: SecurityException) { } catch (_: IllegalArgumentException) { }
+                              manager.requestLocationUpdates(provider, 1000L, 0f, listener, android.os.Looper.getMainLooper())
+                              if (android.os.Build.VERSION.SDK_INT >= 30) {
+                                  manager.getCurrentLocation(provider, null, androidx.core.content.ContextCompat.getMainExecutor(driveContext)) { location ->
+                                      if (location != null && (liveLocation == null || location.time >= (liveLocation?.time ?: 0L))) {
+                                          liveLocation = location
+                                          gpsStatus = "Poloha aktualizovaná"
+                                      }
+                                  }
+                              }
+                          } catch (_: SecurityException) {
+                              gpsStatus = "Povolenie polohy chýba. Otvor Info a povoľ GPS."
+                          } catch (_: IllegalArgumentException) {
+                              gpsStatus = "Poskytovateľ polohy nie je dostupný."
+                          }
+                          }
                       }
+                  } else if (gpsActive) {
+                      gpsStatus = "Povolenie polohy chýba. Otvor Info a povoľ GPS."
+                  } else if (savedRouteGeometry.isNullOrBlank()) {
+                      gpsStatus = "Najprv vypočítaj trasu."
                   }
                   onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
               }
               val speedText = liveLocation?.takeIf { it.hasSpeed() }?.let { String.format(java.util.Locale.getDefault(), "%.0f km/h", it.speed * 3.6f) } ?: "-- km/h"
-              val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: if (gpsActive) "Čakám na polohu GPS…" else "Živá poloha je vypnutá."
+              val gpsText = liveLocation?.let { String.format(java.util.Locale.getDefault(), "GPS: %.5f, %.5f", it.latitude, it.longitude) } ?: gpsStatus
               Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                   Text("Jazda", fontSize = 25.sp, fontWeight = FontWeight.Bold)
                   Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1855,7 +1886,8 @@ jobs:
           s, count = pattern.subn(lambda _: replacement, s, count=1)
           if count != 1: raise SystemExit("DriveScreen could not be replaced exactly once; refusing to build.")
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
-                         "DisposableEffect(gpsActive)", "manager.requestLocationUpdates(provider, 2000L, 2f, listener, android.os.Looper.getMainLooper())"):
+                         "DisposableEffect(gpsActive)", "manager.requestLocationUpdates(provider, 1000L, 0f, listener, android.os.Looper.getMainLooper())",
+                         "manager.getCurrentLocation(provider"):
               if needle not in s:
                   raise SystemExit("DriveScreen GPS startup verification failed: " + needle)
           p.write_text(s)
@@ -2304,7 +2336,7 @@ jobs:
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }\n"
               "    Button(onClick = { infoPanelOpen = !infoPanelOpen }, modifier = (if (infoPanelOpen && !isLandscape) Modifier.align(Alignment.TopCenter) else Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.navigationBars)).padding(12.dp)) { Text(if (infoPanelOpen) \"Skryť info\" else \"Info\") }\n"
-              "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }\n"
+              "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) { Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) { Text(String.format(java.util.Locale.getDefault(), \"%.0f km · \", remainingKm) + arrivalText + \" · \" + remainingDurationText + \" · \" + speedText, fontWeight = FontWeight.Bold); Text(gpsText, fontSize = 12.sp) } }\n"
               "    if (infoPanelOpen) Column(\n"
               "        (if (isLandscape) Modifier.align(Alignment.BottomStart).width(320.dp).heightIn(max = (screenHeightDp * 0.55f).dp) else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = (screenHeightDp * 0.4f).dp))\n"
               "            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))\n"
@@ -2685,6 +2717,11 @@ jobs:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
           call_text = compose.read_text()
+          for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
+                         "manager.getCurrentLocation(provider", "manager.requestLocationUpdates(provider, 1000L, 0f, listener",
+                         "override fun onLocationChanged(location: android.location.Location)", "gpsStatus", "liveLocation = liveLocation"):
+              if needle not in call_text:
+                  raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
           for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
                          "followGps = followGps", "onUserGesture = { followGps = false }",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
