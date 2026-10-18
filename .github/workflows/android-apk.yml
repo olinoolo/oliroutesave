@@ -2578,6 +2578,17 @@ jobs:
               return org.maplibre.android.annotations.IconFactory.getInstance(context).fromBitmap(bitmap)
           }
 
+          private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng? {
+              val coordinates = coordinatesText?.split(",") ?: return routePoints.lastOrNull()
+              if (coordinates.size != 2) return routePoints.lastOrNull()
+              val longitude = coordinates[0].toDoubleOrNull() ?: return routePoints.lastOrNull()
+              val latitude = coordinates[1].toDoubleOrNull() ?: return routePoints.lastOrNull()
+              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) {
+                  return routePoints.lastOrNull()
+              }
+              return LatLng(latitude, longitude)
+          }
+
           /**
            * Map view whose AndroidView.update never touches the camera.
            * Camera moves happen only from effects keyed on the state that needs them:
@@ -2590,6 +2601,7 @@ jobs:
               modifier: Modifier = Modifier,
               routeGeometry: String? = null,
               liveLocation: android.location.Location? = null,
+              destinationCoordinates: String? = null,
               followGps: Boolean = true,
               fitRouteRequest: Int = 0,
               onUserGesture: () -> Unit = {}
@@ -2667,7 +2679,7 @@ jobs:
               }
 
               // Blue route line: redrawn only when the route changes.
-              LaunchedEffect(map, styleReady, routeGeometry) {
+              LaunchedEffect(map, styleReady, routeGeometry, destinationCoordinates) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   routeLine?.let { readyMap.removePolyline(it) }
@@ -2675,7 +2687,7 @@ jobs:
                   destinationMarker?.let { readyMap.removeMarker(it) }
                   destinationMarker = null
                   val points = routePoints(routeGeometry)
-                  val destination = points.lastOrNull()
+                  val destination = destinationPoint(destinationCoordinates, points)
                   if (destination != null) {
                       destinationMarker = readyMap.addMarker(
                           MarkerOptions()
@@ -2755,7 +2767,7 @@ jobs:
                          "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
                          "Aktuálna poloha", "PolylineOptions()",
                          "var destinationMarker by remember { mutableStateOf<Marker?>(null) }",
-                         "val destination = points.lastOrNull()", '.title("Cieľ")',
+                         "val destination = destinationPoint(destinationCoordinates, points)", "routePoints.lastOrNull()", '.title("Cieľ")',
                          ".position(destination)",
                          "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
                          "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
@@ -2768,6 +2780,24 @@ jobs:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
           call_text = compose.read_text()
+          follow_state = "var followGps by rememberSaveable { mutableStateOf(true) }"
+          if call_text.count(follow_state) != 1:
+              raise SystemExit("DriveScreen followGps state anchor missing or duplicated.")
+          call_text = call_text.replace(
+              follow_state,
+              follow_state + '\n              LaunchedEffect(savedRouteGeometry) {\n'
+              '                  if (!savedRouteGeometry.isNullOrBlank()) followGps = true\n'
+              '              }',
+              1
+          )
+          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }"
+          if call_text.count(map_call_anchor) != 1:
+              raise SystemExit("Final DriveScreen map call anchor missing or duplicated.")
+          call_text = call_text.replace(
+              map_call_anchor,
+              "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
+              1
+          )
           manifest = root / "AndroidManifest.xml"
           if not manifest.is_file():
               raise SystemExit("Final AndroidManifest.xml is missing.")
@@ -2792,9 +2822,20 @@ jobs:
                          "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
+          for needle in ('putString("last_destination_coordinates", to.first.toString() + "," + to.second)',
+                         "remove(\"last_destination_coordinates\")",
+                         "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)",
+                         "if (!savedRouteGeometry.isNullOrBlank()) followGps = true"):
+              if needle not in call_text:
+                  raise SystemExit(f"Final generated route destination/follow wiring is missing: {needle}")
+          for needle in ("private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng?",
+                         "destinationPoint(destinationCoordinates, points)", "return LatLng(latitude, longitude)",
+                         "routePoints.lastOrNull()"):
+              if needle not in new:
+                  raise SystemExit(f"Final generated destination coordinate handling is missing: {needle}")
           if 'addMarker(MarkerOptions().position(position).title("Aktuálna poloha"))' not in new:
               raise SystemExit("Final generated MapLibre source is missing the live GPS marker.")
-          if 'val destination = points.lastOrNull()' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
+          if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
               raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
           for needle in ("var followGps by rememberSaveable { mutableStateOf(true) }",
                          "followGps = followGps", "onUserGesture = { followGps = false }",
@@ -2805,6 +2846,7 @@ jobs:
           for obsolete in ("showWholeRoute", "onUserPan"):
               if obsolete in call_text:
                   raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
+          compose.write_text(call_text)
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
