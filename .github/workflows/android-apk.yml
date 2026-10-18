@@ -2928,15 +2928,55 @@ jobs:
           }
 
           /** Next maneuver ahead of the live position, with distance along the route; null when there is no guidance data. */
-          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?): String? {
+          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?): String? =
+              nextGuidance(plan, location)?.let { it.instruction + (it.distanceKm?.let { km -> " o " + formatDistance(km) } ?: "") }
+
+          /** Structured guidance: key identifies the maneuver so speech can tell "same maneuver" from "new maneuver". */
+          internal data class Guidance(val key: String, val instruction: String, val distanceKm: Double?)
+
+          internal fun nextGuidance(plan: NavPlan, location: GeoPoint?): Guidance? {
               if (location == null || plan.points.size < 2 || plan.steps.isEmpty()) return null
               val progress = nearestIndex(plan.points, location)
-              if (distanceKm(location, plan.points[progress]) > OFF_ROUTE_KM) return "Mimo trasy"
+              if (distanceKm(location, plan.points[progress]) > OFF_ROUTE_KM) return Guidance("off-route", "Mimo trasy", null)
               val next = plan.stepIndex.indexOfFirst { it > progress }
-              if (next < 0) return "Ste v cieli"
+              if (next < 0) return Guidance("arrived", "Ste v cieli", null)
               var km = distanceKm(location, plan.points[progress])
               for (i in progress until plan.stepIndex[next]) km += distanceKm(plan.points[i], plan.points[i + 1])
-              return describeStep(plan.steps[next]) + " o " + formatDistance(km)
+              return Guidance("step:" + next, describeStep(plan.steps[next]), km)
+          }
+
+          /** Distances (metres) at which an upcoming maneuver is announced again. */
+          internal val SPEECH_THRESHOLDS_M = listOf(500, 200, 100)
+
+          internal fun spokenDistance(meters: Double): String = when {
+              meters < 30.0 -> "teraz"
+              meters < 1000.0 -> "o " + (Math.round(meters / 10.0) * 10L) + " metrov"
+              else -> "o " + String.format(java.util.Locale.US, "%.1f", meters / 1000.0).replace('.', ',') + " kilometra"
+          }
+
+          /**
+           * De-duplicates spoken guidance: speaks when the maneuver changes, and once more each time the
+           * distance to it first drops to 500, 200 and 100 m. GPS updates in between return null.
+           */
+          internal class SpokenGuidance {
+              private var lastKey: String? = null
+              private val announced = mutableSetOf<Int>()
+
+              fun next(guidance: Guidance?): String? {
+                  if (guidance == null) return null
+                  val meters = guidance.distanceKm?.times(1000.0)
+                  if (guidance.key != lastKey) {
+                      lastKey = guidance.key
+                      announced.clear()
+                      if (meters != null) announced.addAll(SPEECH_THRESHOLDS_M.filter { it >= meters })
+                      return if (meters == null) guidance.instruction else guidance.instruction + " " + spokenDistance(meters)
+                  }
+                  if (meters == null) return null
+                  val crossed = SPEECH_THRESHOLDS_M.filter { meters <= it && it !in announced }
+                  if (crossed.isEmpty()) return null
+                  announced.addAll(crossed)
+                  return guidance.instruction + " " + spokenDistance((crossed.minOrNull() ?: 100).toDouble())
+              }
           }
 
           internal const val OFF_ROUTE_KM = 0.15
@@ -3033,6 +3073,47 @@ jobs:
                   assertNull(nextInstruction(NavPlan(line, emptyList()), line[1]))
               }
 
+              @Test fun speechAnnouncesNewManeuverThenEachThresholdOnce() {
+                  val speech = SpokenGuidance()
+                  val first = speech.next(Guidance("step:1", "Odbočte vpravo", 2.0))!!
+                  assertEquals("Odbočte vpravo o 2,0 kilometra", first)
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 1.5)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.6)))
+                  assertEquals("Odbočte vpravo o 500 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.49)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.45)))
+                  assertEquals("Odbočte vpravo o 200 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.19)))
+                  assertEquals("Odbočte vpravo o 100 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.09)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.05)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.19)))
+              }
+
+              @Test fun speechSkipsThresholdsAlreadyPassedWhenManeuverFirstSeen() {
+                  val speech = SpokenGuidance()
+                  assertEquals("Odbočte vľavo o 150 metrov", speech.next(Guidance("step:2", "Odbočte vľavo", 0.15)))
+                  assertNull(speech.next(Guidance("step:2", "Odbočte vľavo", 0.14)))
+                  assertEquals("Odbočte vľavo o 100 metrov", speech.next(Guidance("step:2", "Odbočte vľavo", 0.099)))
+              }
+
+              @Test fun speechAnnouncesNextManeuverAndStatesOnlyOnce() {
+                  val speech = SpokenGuidance()
+                  speech.next(Guidance("step:1", "A", 0.05))
+                  assertEquals("B o 3,0 kilometra", speech.next(Guidance("step:2", "B", 3.0)))
+                  assertEquals("Mimo trasy", speech.next(Guidance("off-route", "Mimo trasy", null)))
+                  assertNull(speech.next(Guidance("off-route", "Mimo trasy", null)))
+                  assertEquals("Ste v cieli", speech.next(Guidance("arrived", "Ste v cieli", null)))
+                  assertNull(speech.next(Guidance("arrived", "Ste v cieli", null)))
+                  assertNull(speech.next(null))
+              }
+
+              @Test fun speechIsDrivenByRealPlanProgress() {
+                  val speech = SpokenGuidance()
+                  val spoken = (0..4).mapNotNull { speech.next(nextGuidance(plan, line[it])) }
+                  assertTrue(spoken.isNotEmpty())
+                  assertEquals(spoken.size, spoken.toSet().size, spoken.toString())
+                  assertEquals("teraz", spokenDistance(10.0))
+                  assertEquals("o 350 metrov", spokenDistance(350.0))
+              }
+
               @Test fun fitBoundsSpanFromCurrentAreaToMunich() {
                   val start = GeoPoint(48.57385, 16.69180)
                   val munich = GeoPoint(48.1371, 11.5754)
@@ -3072,6 +3153,43 @@ jobs:
               "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
               1
           )
+          entry_effect = "LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }"
+          if call_text.count(entry_effect) != 1:
+              raise SystemExit("Navigation-entry effect anchor missing or duplicated; cannot add spoken guidance.")
+          spoken_code = (
+              entry_effect + "\n"
+              "              val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry), parseSteps(drivePrefs.getString(\"last_route_steps\", null))) }\n"
+              "              val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }\n"
+              "              var guidanceVoiceReady by remember { mutableStateOf(false) }\n"
+              "              val guidanceTts = remember(driveContext) {\n"
+              "                  try {\n"
+              "                      var created: android.speech.tts.TextToSpeech? = null\n"
+              "                      created = android.speech.tts.TextToSpeech(driveContext.applicationContext) { status ->\n"
+              "                          val engine = created\n"
+              "                          if (status == android.speech.tts.TextToSpeech.SUCCESS && engine != null) {\n"
+              "                              val language = engine.setLanguage(java.util.Locale(\"sk\", \"SK\"))\n"
+              "                              guidanceVoiceReady = language != android.speech.tts.TextToSpeech.LANG_MISSING_DATA && language != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED\n"
+              "                              try {\n"
+              "                                  engine.setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())\n"
+              "                              } catch (_: Exception) { }\n"
+              "                          }\n"
+              "                          android.util.Log.d(\"OLIVoice\", \"Guidance TTS init status=$status ready=$guidanceVoiceReady\")\n"
+              "                      }\n"
+              "                      created\n"
+              "                  } catch (e: Exception) {\n"
+              "                      android.util.Log.d(\"OLIVoice\", \"Guidance TTS unavailable: \" + e.message)\n"
+              "                      null\n"
+              "                  }\n"
+              "              }\n"
+              "              DisposableEffect(guidanceTts) { onDispose { guidanceTts?.stop(); guidanceTts?.shutdown() } }\n"
+              "              LaunchedEffect(liveLocation, navPlan, guidanceVoiceReady) {\n"
+              "                  if (!guidanceVoiceReady) return@LaunchedEffect\n"
+              "                  val phrase = spokenGuidance.next(nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })) ?: return@LaunchedEffect\n"
+              "                  android.util.Log.d(\"OLIVoice\", \"Speaking: \" + phrase)\n"
+              "                  guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, \"oli-guidance\")\n"
+              "              }"
+          )
+          call_text = call_text.replace(entry_effect, spoken_code, 1)
           preview_call = "MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry)"
           if call_text.count(preview_call) != 1:
               raise SystemExit("Route preview map call anchor missing or duplicated.")
@@ -3137,7 +3255,10 @@ jobs:
                          "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
                          "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
                          'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }",
-                         "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)'):
+                         "nextInstruction(remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
+                         "val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }", "spokenGuidance.next(nextGuidance(navPlan,",
+                         "guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH", "guidanceTts?.stop(); guidanceTts?.shutdown()",
+                         "Locale(\"sk\", \"SK\")"):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
           for obsolete in ("showWholeRoute", "onUserPan"):
