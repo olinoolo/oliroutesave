@@ -2469,7 +2469,7 @@ jobs:
           )
           replace_compose_once(
               "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
-              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { android.util.Log.d(\"OLIMap\", \"GPS follow paused: user map gesture\"); followGps = false }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
               "map call"
           )
           replace_compose_once(
@@ -2793,6 +2793,14 @@ jobs:
               "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
               1
           )
+          gesture_callback = "onUserGesture = { followGps = false }"
+          if call_text.count(gesture_callback) != 1:
+              raise SystemExit("Final GPS gesture callback anchor missing or duplicated.")
+          call_text = call_text.replace(
+              gesture_callback,
+              'onUserGesture = { android.util.Log.d("OLIMap", "GPS follow paused: user map gesture"); followGps = false }',
+              1
+          )
           manifest = root / "AndroidManifest.xml"
           if not manifest.is_file():
               raise SystemExit("Final AndroidManifest.xml is missing.")
@@ -2832,7 +2840,7 @@ jobs:
           if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
               raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
           for needle in ("var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
-                         "followGps = followGps", "onUserGesture = { followGps = false }",
+                         "followGps = followGps", "GPS follow paused: user map gesture",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
                          "Button(onClick = { followGps = true }"):
               if needle not in call_text:
