@@ -2469,7 +2469,7 @@ jobs:
           )
           replace_compose_once(
               "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
-              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { android.util.Log.d(\"OLIMap\", \"GPS follow paused: user map gesture\"); followGps = false }",
               "map call"
           )
           replace_compose_once(
