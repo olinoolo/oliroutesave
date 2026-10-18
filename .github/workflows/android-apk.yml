@@ -909,7 +909,7 @@ jobs:
                                   val to = geocode(destinationPlace.trim())
                                   val km = calculateRoadDistance(from, to)
                                   routeDistanceKm = String.format(java.util.Locale.getDefault(), "%.1f", km)
-                                  routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).apply()
+                                  routeContext.getSharedPreferences("oli_routesave_route", android.content.Context.MODE_PRIVATE).edit().putFloat("last_distance_km", km.toFloat()).putString("last_start", startPlace.trim()).putString("last_destination", destinationPlace.trim()).putString("last_destination_coordinates", "${to.first},${to.second}").apply()
                                   routeStatus = "Orientačná cestná vzdialenosť podľa verejnej mapovej služby."
                               } catch (e: Exception) {
                                   routeStatus = "Výpočet sa nepodaril: " + (e.message ?: "Skontroluj internet a názvy miest.")
@@ -2736,7 +2736,7 @@ jobs:
               }
 
               // Fit once per newly loaded route, or for each explicit fit request.
-              LaunchedEffect(map, styleReady, routeGeometry, fitRouteRequest) {
+              LaunchedEffect(map, styleReady, routeGeometry, destinationCoordinates, fitRouteRequest) {
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   val points = routePoints(routeGeometry)
@@ -2751,6 +2751,8 @@ jobs:
                   }
                   val builder = LatLngBounds.Builder()
                   points.forEach { builder.include(it) }
+                  destinationPoint(destinationCoordinates, points)?.let { builder.include(it) }
+                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"}")
                   readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
                   lastFittedRouteGeometry = routeGeometry
                   lastFitRouteRequest = fitRouteRequest
