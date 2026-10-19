@@ -2304,6 +2304,126 @@ jobs:
           print("Removed repeated camera recentering from AndroidView.update so map drag and pinch gestures can complete.")
           PY
 
+      - name: Apply approved OLI RouteSave home screen layout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+
+          # Persist the home-screen destination so the route planner opens with the typed destination.
+          route_state = 'var destination by rememberSaveable { mutableStateOf("") }'
+          if route_state not in s:
+              raise SystemExit("Route planner destination state not found; refusing an unsafe patch.")
+          route_start = s.find("private fun RouteScreen(")
+          route_end = s.find("@Composable", route_start + 1)
+          if route_start < 0 or route_end < 0:
+              raise SystemExit("RouteScreen boundaries not found.")
+          route_block = s[route_start:route_end]
+          route_context_anchor = '    val context = LocalContext.current'
+          if 'getSharedPreferences("oli_home_route"' not in route_block:
+              if route_context_anchor not in route_block:
+                  raise SystemExit("RouteScreen context anchor not found.")
+              route_block = route_block.replace(route_context_anchor, route_context_anchor + """
+              LaunchedEffect(Unit) {
+                  val savedDestination = context.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE)
+                      .getString("destination", "").orEmpty()
+                  if (destination.isBlank()) destination = savedDestination
+              }""", 1)
+              s = s[:route_start] + route_block + s[route_end:]
+
+          home_start = s.find("private fun HomeScreen(")
+          if home_start < 0:
+              raise SystemExit("HomeScreen function not found.")
+          home_match = re.search(r'private fun HomeScreen\([\s\S]*?\)\s*\{', s[home_start:])
+          if not home_match:
+              raise SystemExit("HomeScreen function opening not found.")
+          body_open = home_start + home_match.end()
+          if "var homeDestination by rememberSaveable" not in s[body_open:body_open+700]:
+              s = s[:body_open] + '''
+              val homeContext = LocalContext.current
+              var homeDestination by rememberSaveable {
+                  mutableStateOf(homeContext.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE).getString("destination", "").orEmpty())
+              }
+          ''' + s[body_open:]
+
+          vehicle_pattern = re.compile(r'(?m)^        Card\(\n\s+colors = CardDefaults\.cardColors\(containerColor = MaterialTheme\.colorScheme\.surface\),\n\s+onClick = onVehicleClick\n\s+\) \{')
+          vehicle_match = vehicle_pattern.search(s)
+          if not vehicle_match:
+              raise SystemExit("Vehicle card anchor not found; refusing to insert UI at an unknown location.")
+
+          home_ui = '''        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                  OutlinedTextField(
+                      value = homeDestination,
+                      onValueChange = { homeDestination = it },
+                      modifier = Modifier.fillMaxWidth(),
+                      singleLine = true,
+                      label = { Text("Kam chcete ísť?") },
+                      placeholder = { Text("Zadajte mesto alebo adresu") }
+                  )
+                  Button(
+                      onClick = {
+                          homeContext.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE)
+                              .edit().putString("destination", homeDestination.trim()).apply()
+                          onRouteClick()
+                      },
+                      modifier = Modifier.fillMaxWidth().height(50.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900))
+                  ) {
+                      Icon(Icons.Filled.Route, contentDescription = null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("Naplánovať trasu")
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Button(onClick = onRouteClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.Route, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Trasa")
+                      }
+                      OutlinedButton(onClick = onStartDrive, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Jazda")
+                      }
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedButton(onClick = onVehicleClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Moje vozidlo")
+                      }
+                      OutlinedButton(onClick = onCommunityClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.People, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Komunita")
+                      }
+                  }
+                  OutlinedButton(onClick = onAssistantClick, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                      Icon(Icons.Filled.Mic, contentDescription = null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("Hovoriť s Nikolasom")
+                  }
+              }
+
+          ''' 
+          home_start = s.find("private fun HomeScreen(")
+          home_end = s.find("@Composable", home_start + 1)
+          if home_start < 0 or home_end < 0:
+              raise SystemExit("HomeScreen boundaries not found before UI insertion.")
+          home_block = s[home_start:home_end]
+          if "Kam chcete ísť?" not in home_block:
+              # Recompute the insertion point after HomeScreen boundaries are established.
+              vehicle_match = vehicle_pattern.search(home_block)
+              if not vehicle_match:
+                  raise SystemExit("Vehicle card anchor not found inside HomeScreen.")
+              insert_at = home_start + vehicle_match.start()
+              s = s[:insert_at] + home_ui + s[insert_at:]
+          p.write_text(s)
+          print("Added the approved destination/search and home quick actions; route planner now reads the saved home destination.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
