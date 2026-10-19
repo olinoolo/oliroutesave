@@ -3495,6 +3495,62 @@ jobs:
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
+      - name: Keep the active navigation screen synchronized with the calculated route
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+          start = s.find("private fun DriveScreen(")
+          end = s.find("@Composable", start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit("DriveScreen boundaries not found; refusing to build an unverified navigation screen.")
+          block = s[start:end]
+
+          # The driving screen must react when route planning asynchronously saves a new route.
+          old = '''val savedRouteGeometry = drivePrefs.getString("last_route_geometry", null)
+              val savedRouteDistance = drivePrefs.getFloat("last_distance_km", 0f)
+              val savedRouteDestination = drivePrefs.getString("last_destination", "")
+              val savedRouteDestinationCoordinates = drivePrefs.getString("last_destination_coordinates", null)
+              val savedRouteDurationMinutes = drivePrefs.getFloat("last_duration_minutes", 0f)'''
+          new = '''var savedRouteGeometry by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_route_geometry", null)) }
+              var savedRouteDistance by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_distance_km", 0f)) }
+              var savedRouteDestination by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination", "")) }
+              var savedRouteDestinationCoordinates by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination_coordinates", null)) }
+              var savedRouteDurationMinutes by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_duration_minutes", 0f)) }
+
+              DisposableEffect(drivePrefs) {
+                  val routeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+                      when (key) {
+                          "last_route_geometry" -> savedRouteGeometry = prefs.getString(key, null)
+                          "last_distance_km" -> savedRouteDistance = prefs.getFloat(key, 0f)
+                          "last_destination" -> savedRouteDestination = prefs.getString(key, "")
+                          "last_destination_coordinates" -> savedRouteDestinationCoordinates = prefs.getString(key, null)
+                          "last_duration_minutes" -> savedRouteDurationMinutes = prefs.getFloat(key, 0f)
+                      }
+                  }
+                  drivePrefs.registerOnSharedPreferenceChangeListener(routeListener)
+                  onDispose { drivePrefs.unregisterOnSharedPreferenceChangeListener(routeListener) }
+              }'''
+          if old in block:
+              block = block.replace(old, new, 1)
+          elif 'SharedPreferences.OnSharedPreferenceChangeListener' not in block:
+              raise SystemExit("Expected DriveScreen route preference block not found; refusing to build.")
+          for needle in (
+              'SharedPreferences.OnSharedPreferenceChangeListener',
+              'last_route_geometry',
+              'last_destination_coordinates',
+              'LaunchedEffect(savedRouteGeometry)',
+              'updateFollow(FollowEvent.NAVIGATION_ENTRY)'
+          ):
+              if needle not in block:
+                  raise SystemExit("Active navigation synchronization verification failed: " + needle)
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+          print("Verified: active DriveScreen reacts to route geometry, destination, distance, coordinates and duration.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
