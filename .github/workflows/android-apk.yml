@@ -3495,6 +3495,12 @@ jobs:
           print("MapLibreMapView rewritten: AndroidView.update is a no-op, camera moves only from keyed effects.")
           PY
 
+      - name: Record navigation synchronization limitation
+        run: |
+          echo "The generated DriveScreen source does not match the expected saved-route preference block."
+          echo "Skipping speculative source rewrite; continue build so compilation and artifact availability can be evaluated."
+          echo "Active navigation behavior still requires verification in the installed APK."
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
