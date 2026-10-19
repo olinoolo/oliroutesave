@@ -2465,12 +2465,17 @@ jobs:
 
           replace_compose_once(
               "var showWholeRoute by rememberSaveable { mutableStateOf(false) }",
-              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
+              "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }\n"
+              "              fun updateFollow(event: FollowEvent) {\n"
+              "                  android.util.Log.d(\"OLIFollow\", followLogMessage(followGps, event))\n"
+              "                  followGps = event.followAfter\n"
+              "              }\n"
+              "              LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }",
               "follow state"
           )
           replace_compose_once(
               "showWholeRoute = showWholeRoute, fitRouteRequest = fitRouteRequest, onUserPan = { showWholeRoute = true }",
-              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }",
+              "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }",
               "map call"
           )
           replace_compose_once(
@@ -2481,9 +2486,9 @@ jobs:
               "                    fitRouteRequest += 1\n"
               "                }",
               "if (!followGps) {\n"
-              "                    followGps = true\n"
+              "                    updateFollow(FollowEvent.RESUME_BUTTON)\n"
               "                } else {\n"
-              "                    followGps = false\n"
+              "                    updateFollow(FollowEvent.WHOLE_ROUTE_REQUEST)\n"
               "                    fitRouteRequest += 1\n"
               "                }",
               "follow/fit button action"
@@ -2498,7 +2503,7 @@ jobs:
               "        Button(onClick = { showWholeRoute = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }",
               "if (!followGps) {\n"
-              "        Button(onClick = { followGps = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
+              "        Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Text(\"Sledovať GPS\") }\n"
               "    }",
               "floating recenter button"
           )
@@ -2552,6 +2557,9 @@ jobs:
               }
           }
 
+          internal fun routeGeoPoints(geometryText: String?): List<GeoPoint> =
+              routePoints(geometryText).map { GeoPoint(it.latitude, it.longitude) }
+
           private fun destinationMarkerIcon(context: android.content.Context): org.maplibre.android.annotations.Icon {
               val density = context.resources.displayMetrics.density
               val bitmap = android.graphics.Bitmap.createBitmap(
@@ -2580,14 +2588,8 @@ jobs:
           }
 
           private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng? {
-              val coordinates = coordinatesText?.split(",") ?: return routePoints.lastOrNull()
-              if (coordinates.size != 2) return routePoints.lastOrNull()
-              val longitude = coordinates[0].toDoubleOrNull() ?: return routePoints.lastOrNull()
-              val latitude = coordinates[1].toDoubleOrNull() ?: return routePoints.lastOrNull()
-              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) {
-                  return routePoints.lastOrNull()
-              }
-              return LatLng(latitude, longitude)
+              val routeEnd = routePoints.lastOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+              return resolveDestination(coordinatesText, routeEnd)?.let { LatLng(it.latitude, it.longitude) }
           }
 
           /**
@@ -2670,6 +2672,13 @@ jobs:
                           .zoom(4.2)
                           .build()
                       readyMap.addOnCameraMoveStartedListener { reason ->
+                          val reasonName = when (reason) {
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE -> "user gesture"
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_DEVELOPER_ANIMATION -> "developer animation"
+                              MapLibreMap.OnCameraMoveStartedListener.REASON_API_ANIMATION -> "api animation"
+                              else -> "unknown $reason"
+                          }
+                          android.util.Log.d("OLIMap", "Camera move started: $reasonName")
                           if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) latestOnUserGesture()
                       }
                       readyMap.setStyle(Style.Builder().fromUri("https://tiles.openfreemap.org/styles/liberty")) {
@@ -2697,6 +2706,9 @@ jobs:
                               .icon(destinationMarkerIcon(context))
                       )
                   }
+                  if (points.size >= 2 && destination != null) {
+                      android.util.Log.d("OLIMap", "Route start=${points.first().latitude},${points.first().longitude} end=${points.last().latitude},${points.last().longitude} destination=${destination.latitude},${destination.longitude} endToDestinationKm=${distanceKm(GeoPoint(points.last().latitude, points.last().longitude), GeoPoint(destination.latitude, destination.longitude))}")
+                  }
                   if (points.size >= 2) {
                       routeLine = readyMap.addPolyline(PolylineOptions().addAll(points).width(5f).color(android.graphics.Color.BLUE))
                   }
@@ -2723,17 +2735,26 @@ jobs:
                   val readyMap = map ?: return@LaunchedEffect
                   if (!styleReady) return@LaunchedEffect
                   if (!followGps) {
+                      if (followCentered) readyMap.setPadding(0, 0, 0, 0)
                       followCentered = false
                       return@LaunchedEffect
                   }
                   val location = liveLocation ?: return@LaunchedEffect
                   val target = LatLng(location.latitude, location.longitude)
+                  // Active navigation view: close zoom, tilted, course-up, vehicle in the lower part of the screen.
+                  val course = courseBearing(location.hasBearing(), location.bearing, if (location.hasSpeed()) location.speed else 0f)
+                  val zoom = followZoom(followCentered, readyMap.cameraPosition.zoom)
                   if (!followCentered) {
                       followCentered = true
-                      readyMap.easeCamera(CameraUpdateFactory.newLatLngZoom(target, 13.5))
-                  } else {
-                      readyMap.easeCamera(CameraUpdateFactory.newLatLng(target))
+                      readyMap.setPadding(0, (mapView.height * 0.35f).toInt(), 0, 0)
                   }
+                  val cameraPosition = CameraPosition.Builder()
+                      .target(target)
+                      .zoom(zoom)
+                      .tilt(FOLLOW_TILT)
+                      .bearing(course ?: readyMap.cameraPosition.bearing)
+                      .build()
+                  readyMap.easeCamera(CameraUpdateFactory.newCameraPosition(cameraPosition), 900)
               }
 
               // Fit once per newly loaded route, or for each explicit fit request.
@@ -2745,16 +2766,23 @@ jobs:
                   val routeLoaded = routeGeometry != lastFittedRouteGeometry
                   val requested = fitRouteRequest != lastFitRouteRequest
                   if (!routeLoaded && !requested) return@LaunchedEffect
-                  if (routeLoaded && !requested && followGps && liveLocation != null) {
+                  if (routeLoaded && !requested && followGps) {
                       lastFittedRouteGeometry = routeGeometry
                       lastFitRouteRequest = fitRouteRequest
                       return@LaunchedEffect
                   }
+                  val destination = destinationPoint(destinationCoordinates, points)
+                  val fitPoints = routeFitPoints(
+                      points.map { GeoPoint(it.latitude, it.longitude) },
+                      destination?.let { GeoPoint(it.latitude, it.longitude) }
+                  )
                   val builder = LatLngBounds.Builder()
-                  points.forEach { builder.include(it) }
-                  destinationPoint(destinationCoordinates, points)?.let { builder.include(it) }
-                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"}")
-                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 36))
+                  fitPoints.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
+                  val density = context.resources.displayMetrics.density
+                  val sidePadding = (minOf(mapView.width, mapView.height) * 0.12f).toInt().coerceAtLeast((24 * density).toInt())
+                  val topPadding = sidePadding + (36 * density).toInt()
+                  android.util.Log.d("OLIMap", "Fitting route bounds with ${points.size} route points and destination=${destinationCoordinates ?: "route endpoint fallback"} (${fitPoints.size} fit points)")
+                  readyMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), sidePadding, topPadding, sidePadding, sidePadding))
                   lastFittedRouteGeometry = routeGeometry
                   lastFitRouteRequest = fitRouteRequest
               }
@@ -2770,11 +2798,13 @@ jobs:
                          "REASON_API_GESTURE", "latestOnUserGesture()", "fitRouteRequest", "lastFittedRouteGeometry",
                          "Aktuálna poloha", "PolylineOptions()",
                          "var destinationMarker by remember { mutableStateOf<Marker?>(null) }",
-                         "val destination = destinationPoint(destinationCoordinates, points)", "routePoints.lastOrNull()", '.title("Cieľ")',
+                         "val destination = destinationPoint(destinationCoordinates, points)", "resolveDestination(coordinatesText, routeEnd)", '.title("Cieľ")',
+                         "routeFitPoints(", "fitPoints.forEach { builder.include(LatLng(it.latitude, it.longitude)) }",
+                         "Camera move started: $reasonName",
                          ".position(destination)",
                          "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
                          "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
-                         "if (routeLoaded && !requested && followGps && liveLocation != null)",
+                         "if (routeLoaded && !requested && followGps) {",
                          "lastFittedRouteGeometry = routeGeometry"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
@@ -2782,11 +2812,512 @@ jobs:
               if obsolete in new:
                   raise SystemExit(f"Generated map source retains obsolete camera state: {obsolete}")
           p.write_text(new + ("" if new.endswith("\n") else "\n"))
+
+          # Pure (Android-free) navigation-map logic, kept separate so it can be unit tested on the JVM.
+          logic = r'''
+          package com.oli.routesave.ui.compose
+
+          internal data class GeoPoint(val latitude: Double, val longitude: Double)
+
+          /** Parses the "longitude,latitude" text saved by the route planner; null when missing or invalid. */
+          internal fun parseLonLat(text: String?): GeoPoint? {
+              val parts = text?.split(",") ?: return null
+              if (parts.size != 2) return null
+              val longitude = parts[0].trim().toDoubleOrNull() ?: return null
+              val latitude = parts[1].trim().toDoubleOrNull() ?: return null
+              if (!longitude.isFinite() || !latitude.isFinite() || longitude !in -180.0..180.0 || latitude !in -90.0..90.0) return null
+              return GeoPoint(latitude, longitude)
+          }
+
+          /** Saved geocoded destination wins; the route end is only a fallback for legacy routes. Never the GPS position. */
+          internal fun resolveDestination(coordinatesText: String?, routeEnd: GeoPoint?): GeoPoint? =
+              parseLonLat(coordinatesText) ?: routeEnd
+
+          /** Points the "whole route" camera must contain: all route geometry plus the destination. */
+          internal fun routeFitPoints(route: List<GeoPoint>, destination: GeoPoint?): List<GeoPoint> =
+              if (destination == null) route else route + destination
+
+          internal enum class FollowEvent(val label: String, val followAfter: Boolean) {
+              NAVIGATION_ENTRY("navigation entry", true),
+              USER_GESTURE("user map gesture", false),
+              WHOLE_ROUTE_REQUEST("whole-route button", false),
+              RESUME_BUTTON("Sledovať GPS button", true)
+          }
+
+          internal fun followLogMessage(before: Boolean, event: FollowEvent): String =
+              "GPS follow " + before + " -> " + event.followAfter + " (" + event.label + ")"
+
+          /** Largest allowed gap between the route's last point and the geocoded destination (road snapping tolerance). */
+          internal const val ROUTE_END_TOLERANCE_KM = 25.0
+
+          /** Gap between the route end and the destination; null when either is missing. */
+          internal fun routeEndGapKm(route: List<GeoPoint>, destination: GeoPoint?): Double? {
+              val end = route.lastOrNull() ?: return null
+              return if (destination == null) null else distanceKm(end, destination)
+          }
+
+          internal fun distanceKm(a: GeoPoint, b: GeoPoint): Double {
+              val r = 6371.0088
+              val dLat = Math.toRadians(b.latitude - a.latitude)
+              val dLon = Math.toRadians(b.longitude - a.longitude)
+              val h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(Math.toRadians(a.latitude)) * Math.cos(Math.toRadians(b.latitude)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+              return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)))
+          }
+
+          internal fun bearingDegrees(from: GeoPoint, to: GeoPoint): Double {
+              val lat1 = Math.toRadians(from.latitude)
+              val lat2 = Math.toRadians(to.latitude)
+              val dLon = Math.toRadians(to.longitude - from.longitude)
+              val y = Math.sin(dLon) * Math.cos(lat2)
+              val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+              return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+          }
+
+          internal fun compassLabel(bearing: Double): String {
+              val names = listOf("S", "SV", "V", "JV", "J", "JZ", "Z", "SZ")
+              return names[(((bearing % 360.0) + 360.0) % 360.0 / 45.0 + 0.5).toInt() % 8]
+          }
+
+          internal data class NavStep(val point: GeoPoint, val type: String, val modifier: String, val name: String)
+
+          /** Parses saved OSRM maneuvers: one "lon,lat|type|modifier|name" line per step. */
+          internal fun parseSteps(text: String?): List<NavStep> {
+              if (text.isNullOrBlank()) return emptyList()
+              return text.lines().mapNotNull { line ->
+                  val parts = line.split("|", limit = 4)
+                  if (parts.size < 4) return@mapNotNull null
+                  val point = parseLonLat(parts[0]) ?: return@mapNotNull null
+                  NavStep(point, parts[1], parts[2], parts[3].trim())
+              }
+          }
+
+          /** Route geometry plus each maneuver's vertex index on it, computed once per route. */
+          internal class NavPlan(val points: List<GeoPoint>, val steps: List<NavStep>) {
+              val stepIndex: List<Int> = steps.map { nearestIndex(points, it.point) }
+          }
+
+          internal fun nearestIndex(points: List<GeoPoint>, p: GeoPoint): Int {
+              var best = 0
+              var bestD = Double.MAX_VALUE
+              val k = Math.cos(Math.toRadians(p.latitude))
+              for (i in points.indices) {
+                  val dx = (points[i].longitude - p.longitude) * k
+                  val dy = points[i].latitude - p.latitude
+                  val d = dx * dx + dy * dy
+                  if (d < bestD) { bestD = d; best = i }
+              }
+              return best
+          }
+
+          internal fun formatDistance(km: Double): String =
+              if (km < 1.0) (Math.round(km * 100.0) * 10L).toString() + " m" else String.format(java.util.Locale.US, "%.1f km", km)
+
+          internal fun describeStep(step: NavStep): String {
+              val direction = when (step.modifier) {
+                  "left" -> "vľavo"
+                  "right" -> "vpravo"
+                  "slight left" -> "mierne vľavo"
+                  "slight right" -> "mierne vpravo"
+                  "sharp left" -> "ostro vľavo"
+                  "sharp right" -> "ostro vpravo"
+                  "uturn" -> "otočte sa"
+                  else -> "rovno"
+              }
+              val onto = if (step.name.isBlank()) "" else " na " + step.name
+              return when (step.type) {
+                  "arrive" -> "Cieľ"
+                  "roundabout", "rotary", "roundabout turn" -> "Kruhový objazd, vyjdite " + direction + onto
+                  "merge" -> "Zaraďte sa " + direction + onto
+                  "fork" -> "Na rázcestí " + direction + onto
+                  "on ramp", "off ramp" -> "Zjazd " + direction + onto
+                  "continue", "new name" -> "Pokračujte " + direction + onto
+                  else -> if (step.modifier == "uturn") "Otočte sa" + onto else "Odbočte " + direction + onto
+              }
+          }
+
+          /** Next maneuver ahead of the live position, with distance along the route; null when there is no guidance data. */
+          internal fun guidanceText(g: Guidance): String = g.instruction + (g.distanceKm?.let { km -> " o " + formatDistance(km) } ?: "")
+
+          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?, offRouteConfirmed: Boolean = true): String? =
+              nextGuidance(plan, location, offRouteConfirmed)?.let { guidanceText(it) }
+
+          /** Structured guidance: key identifies the maneuver so speech can tell "same maneuver" from "new maneuver". */
+          internal data class Guidance(val key: String, val instruction: String, val distanceKm: Double?)
+
+          /** Position on the route polyline: segment index, fraction along it and cross-track distance to that segment. */
+          internal data class RouteMatch(val segment: Int, val fraction: Double, val crossTrackKm: Double)
+
+          /** Nearest route SEGMENT (not vertex) with longitude scaled by cos(latitude); sparse geometry cannot cause false offsets. */
+          internal fun matchRoute(points: List<GeoPoint>, p: GeoPoint): RouteMatch {
+              val kmPerDegree = 111.195
+              val k = Math.cos(Math.toRadians(p.latitude))
+              var best = RouteMatch(0, 0.0, Double.MAX_VALUE)
+              for (i in 0 until points.size - 1) {
+                  val ax = (points[i].longitude - p.longitude) * k * kmPerDegree
+                  val ay = (points[i].latitude - p.latitude) * kmPerDegree
+                  val bx = (points[i + 1].longitude - p.longitude) * k * kmPerDegree
+                  val by = (points[i + 1].latitude - p.latitude) * kmPerDegree
+                  val dx = bx - ax
+                  val dy = by - ay
+                  val len2 = dx * dx + dy * dy
+                  val t = if (len2 > 0.0) ((-ax * dx - ay * dy) / len2).coerceIn(0.0, 1.0) else 0.0
+                  val d = Math.hypot(ax + t * dx, ay + t * dy)
+                  if (d < best.crossTrackKm) best = RouteMatch(i, t, d)
+              }
+              return best
+          }
+
+          internal fun nextGuidance(plan: NavPlan, location: GeoPoint?, offRouteConfirmed: Boolean = true): Guidance? {
+              if (location == null || plan.points.size < 2 || plan.steps.isEmpty()) return null
+              val match = matchRoute(plan.points, location)
+              if (offRouteConfirmed && match.crossTrackKm > OFF_ROUTE_KM) return Guidance("off-route", "Mimo trasy", null)
+              var km = (1.0 - match.fraction) * distanceKm(plan.points[match.segment], plan.points[match.segment + 1])
+              var at = match.segment + 1
+              for (next in plan.steps.indices) {
+                  val target = plan.stepIndex[next]
+                  if (target < at) continue
+                  while (at < target) { km += distanceKm(plan.points[at], plan.points[at + 1]); at++ }
+                  if (km >= MANEUVER_REACHED_KM) return Guidance("step:" + next, describeStep(plan.steps[next]), km)
+              }
+              return Guidance("arrived", "Ste v cieli", null)
+          }
+
+          internal const val MANEUVER_REACHED_KM = 0.02
+          internal const val MAX_FIX_ACCURACY_M = 100f
+          internal const val MAX_FIX_AGE_MS = 15000L
+          internal const val OFF_ROUTE_CONSECUTIVE_FIXES = 3
+
+          /** A fix is usable for off-route decisions only when it is fresh and reasonably accurate; unknown accuracy is accepted. */
+          internal fun fixUsable(accuracyM: Float?, ageMs: Long): Boolean =
+              ageMs in 0..MAX_FIX_AGE_MS && (accuracyM == null || accuracyM <= MAX_FIX_ACCURACY_M)
+
+          /** The tolerance grows with reported accuracy but never drops below OFF_ROUTE_KM. */
+          internal fun offRouteThresholdKm(accuracyM: Float?): Double =
+              maxOf(OFF_ROUTE_KM, 2.0 * (accuracyM ?: 0f) / 1000.0)
+
+          internal data class OffRouteCheck(val usable: Boolean, val crossTrackKm: Double, val thresholdKm: Double) {
+              val beyondThreshold: Boolean get() = crossTrackKm > thresholdKm
+          }
+
+          internal fun checkOffRoute(plan: NavPlan, location: GeoPoint, accuracyM: Float?, ageMs: Long): OffRouteCheck =
+              OffRouteCheck(fixUsable(accuracyM, ageMs), matchRoute(plan.points, location).crossTrackKm, offRouteThresholdKm(accuracyM))
+
+          /** Off-route is confirmed only after several consecutive usable fixes beyond the threshold; unusable fixes change nothing. */
+          internal class OffRouteDetector(private val required: Int = OFF_ROUTE_CONSECUTIVE_FIXES) {
+              private var count = 0
+              fun update(check: OffRouteCheck): Boolean {
+                  if (check.usable) count = if (check.beyondThreshold) count + 1 else 0
+                  return count >= required
+              }
+              fun consecutive(): Int = count
+          }
+
+          internal fun offRouteLogMessage(check: OffRouteCheck, accuracyM: Float?, ageMs: Long, consecutive: Int, confirmed: Boolean): String =
+              String.format(java.util.Locale.US, "fixAgeMs=%d accuracyM=%s usable=%s crossTrackM=%.0f thresholdM=%.0f consecutive=%d/%d offRoute=%s",
+                  ageMs, accuracyM?.let { String.format(java.util.Locale.US, "%.0f", it) } ?: "n/a", check.usable,
+                  check.crossTrackKm * 1000.0, check.thresholdKm * 1000.0, consecutive, OFF_ROUTE_CONSECUTIVE_FIXES, confirmed)
+
+          /** Distances (metres) at which an upcoming maneuver is announced again. */
+          internal val SPEECH_THRESHOLDS_M = listOf(500, 200, 100)
+
+          internal fun spokenDistance(meters: Double): String = when {
+              meters < 30.0 -> "teraz"
+              meters < 1000.0 -> "o " + (Math.round(meters / 10.0) * 10L) + " metrov"
+              else -> "o " + String.format(java.util.Locale.US, "%.1f", meters / 1000.0).replace('.', ',') + " kilometra"
+          }
+
+          /**
+           * De-duplicates spoken guidance: speaks when the maneuver changes, and once more each time the
+           * distance to it first drops to 500, 200 and 100 m. GPS updates in between return null.
+           */
+          internal class SpokenGuidance {
+              private var lastKey: String? = null
+              private val announced = mutableSetOf<Int>()
+
+              fun next(guidance: Guidance?): String? {
+                  if (guidance == null) return null
+                  val meters = guidance.distanceKm?.times(1000.0)
+                  if (guidance.key != lastKey) {
+                      lastKey = guidance.key
+                      announced.clear()
+                      if (meters != null) announced.addAll(SPEECH_THRESHOLDS_M.filter { it >= meters })
+                      return if (meters == null) guidance.instruction else guidance.instruction + " " + spokenDistance(meters)
+                  }
+                  if (meters == null) return null
+                  val crossed = SPEECH_THRESHOLDS_M.filter { meters <= it && it !in announced }
+                  if (crossed.isEmpty()) return null
+                  announced.addAll(crossed)
+                  return guidance.instruction + " " + spokenDistance((crossed.minOrNull() ?: 100).toDouble())
+              }
+          }
+
+          internal const val OFF_ROUTE_KM = 0.15
+
+          internal const val FOLLOW_ZOOM = 17.0
+          internal const val FOLLOW_MIN_ZOOM = 15.0
+
+          /** Zoom for the follow camera: close zoom on entry, and again whenever something left the camera zoomed out. */
+          internal fun followZoom(alreadyCentered: Boolean, currentZoom: Double): Double =
+              if (!alreadyCentered || currentZoom < FOLLOW_MIN_ZOOM) FOLLOW_ZOOM else currentZoom
+          internal const val FOLLOW_TILT = 50.0
+          internal const val MIN_COURSE_SPEED_MPS = 1.5f
+
+          /** Course-up bearing for the follow camera; GPS bearing is only trusted while moving, otherwise null keeps the current bearing. */
+          internal fun courseBearing(hasBearing: Boolean, courseDegrees: Float, speedMps: Float): Double? =
+              if (hasBearing && speedMps >= MIN_COURSE_SPEED_MPS) ((courseDegrees.toDouble() % 360.0) + 360.0) % 360.0 else null
+
+          /** Text for the navigation overlay: straight-line distance and direction to the destination, which is off-screen while following GPS. */
+          internal fun destinationCue(current: GeoPoint?, destination: GeoPoint?): String? {
+              if (current == null || destination == null) return null
+              return String.format(java.util.Locale.US, "%.0f km vzdušnou čiarou, smer %s", distanceKm(current, destination), compassLabel(bearingDegrees(current, destination)))
+          }
+          '''.lstrip("\n")
+          (p.parent / "MapNavigationLogic.kt").write_text(logic)
+
+          logic_test = r'''
+          package com.oli.routesave.ui.compose
+
+          import kotlin.test.Test
+          import kotlin.test.assertEquals
+          import kotlin.test.assertNull
+          import kotlin.test.assertTrue
+
+          class MapNavigationLogicTest {
+              private val route = listOf(GeoPoint(48.57, 17.18), GeoPoint(48.2, 11.6))
+
+              @Test fun savedDestinationIsLonLatAndWinsOverRouteEnd() {
+                  val destination = resolveDestination("11.5753822,48.1371079", GeoPoint(48.2, 11.6))
+                  assertEquals(GeoPoint(48.1371079, 11.5753822), destination)
+              }
+
+              @Test fun missingOrInvalidCoordinatesFallBackToRouteEnd() {
+                  val end = GeoPoint(48.2, 11.6)
+                  for (text in listOf(null, "", "abc", "1,2,3", "200,10", "10,95", "NaN,10")) {
+                      assertEquals(end, resolveDestination(text, end), "input: " + text)
+                  }
+                  assertNull(resolveDestination(null, null))
+              }
+
+              @Test fun fitPointsContainRouteAndDestination() {
+                  val destination = GeoPoint(48.1371079, 11.5753822)
+                  val points = routeFitPoints(route, destination)
+                  assertTrue(points.containsAll(route))
+                  assertTrue(destination in points)
+                  assertEquals(route, routeFitPoints(route, null))
+              }
+
+              @Test fun destinationCueUsesRealDestinationNotGps() {
+                  val mistelbach = GeoPoint(48.57385, 16.69180)
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val km = distanceKm(mistelbach, munich)
+                  assertTrue(km in 370.0..400.0, "distance " + km)
+                  assertEquals("Z", compassLabel(bearingDegrees(mistelbach, munich)))
+                  assertEquals(true, destinationCue(mistelbach, munich)!!.endsWith("smer Z"))
+                  assertNull(destinationCue(null, munich))
+                  assertNull(destinationCue(mistelbach, null))
+              }
+
+              @Test fun routeEndMustBeNearSavedDestination() {
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val goodRoute = listOf(GeoPoint(48.37658, 16.23277), GeoPoint(48.14, 11.58))
+                  val viennaRoute = listOf(GeoPoint(48.37658, 16.23277), GeoPoint(48.2082, 16.3738))
+                  assertTrue(routeEndGapKm(goodRoute, munich)!! < ROUTE_END_TOLERANCE_KM)
+                  assertTrue(routeEndGapKm(viennaRoute, munich)!! > ROUTE_END_TOLERANCE_KM)
+                  assertNull(routeEndGapKm(goodRoute, null))
+                  assertNull(routeEndGapKm(emptyList(), munich))
+              }
+
+              private val line = (0..4).map { GeoPoint(48.0, 16.0 + it * 0.01) }
+              private val plan = NavPlan(
+                  line,
+                  parseSteps("16.0,48.0|depart|right|A22\n16.02,48.0|turn|right|Hlavná\n16.04,48.0|arrive||\nbroken line\n")
+              )
+
+              @Test fun parseStepsSkipsBrokenLines() {
+                  assertEquals(3, plan.steps.size)
+                  assertEquals("Hlavná", plan.steps[1].name)
+                  assertEquals(listOf(0, 2, 4), plan.stepIndex)
+                  assertTrue(parseSteps(null).isEmpty())
+              }
+
+              @Test fun nextInstructionPointsAtUpcomingTurn() {
+                  val text = nextInstruction(plan, line[1])!!
+                  assertTrue(text.startsWith("Odbočte vpravo na Hlavná o "), text)
+                  assertTrue(text.endsWith(" m"), text)
+              }
+
+              @Test fun instructionAdvancesAfterPassingTurn() {
+                  val text = nextInstruction(plan, line[3])!!
+                  assertTrue(text.startsWith("Cieľ o "), text)
+              }
+
+              @Test fun arrivalOffRouteAndMissingDataCases() {
+                  assertEquals("Ste v cieli", nextInstruction(plan, line[4]))
+                  assertEquals("Mimo trasy", nextInstruction(plan, GeoPoint(48.1, 16.02)))
+                  assertNull(nextInstruction(plan, null))
+                  assertNull(nextInstruction(NavPlan(line, emptyList()), line[1]))
+              }
+
+              @Test fun speechAnnouncesNewManeuverThenEachThresholdOnce() {
+                  val speech = SpokenGuidance()
+                  val first = speech.next(Guidance("step:1", "Odbočte vpravo", 2.0))!!
+                  assertEquals("Odbočte vpravo o 2,0 kilometra", first)
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 1.5)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.6)))
+                  assertEquals("Odbočte vpravo o 500 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.49)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.45)))
+                  assertEquals("Odbočte vpravo o 200 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.19)))
+                  assertEquals("Odbočte vpravo o 100 metrov", speech.next(Guidance("step:1", "Odbočte vpravo", 0.09)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.05)))
+                  assertNull(speech.next(Guidance("step:1", "Odbočte vpravo", 0.19)))
+              }
+
+              @Test fun speechSkipsThresholdsAlreadyPassedWhenManeuverFirstSeen() {
+                  val speech = SpokenGuidance()
+                  assertEquals("Odbočte vľavo o 150 metrov", speech.next(Guidance("step:2", "Odbočte vľavo", 0.15)))
+                  assertNull(speech.next(Guidance("step:2", "Odbočte vľavo", 0.14)))
+                  assertEquals("Odbočte vľavo o 100 metrov", speech.next(Guidance("step:2", "Odbočte vľavo", 0.099)))
+              }
+
+              @Test fun speechAnnouncesNextManeuverAndStatesOnlyOnce() {
+                  val speech = SpokenGuidance()
+                  speech.next(Guidance("step:1", "A", 0.05))
+                  assertEquals("B o 3,0 kilometra", speech.next(Guidance("step:2", "B", 3.0)))
+                  assertEquals("Mimo trasy", speech.next(Guidance("off-route", "Mimo trasy", null)))
+                  assertNull(speech.next(Guidance("off-route", "Mimo trasy", null)))
+                  assertEquals("Ste v cieli", speech.next(Guidance("arrived", "Ste v cieli", null)))
+                  assertNull(speech.next(Guidance("arrived", "Ste v cieli", null)))
+                  assertNull(speech.next(null))
+              }
+
+              private fun check(location: GeoPoint, accuracyM: Float? = 10f, ageMs: Long = 1000L) = checkOffRoute(plan, location, accuracyM, ageMs)
+
+              @Test fun midpointOfLongSegmentIsOnRoute() {
+                  val sparse = NavPlan(listOf(GeoPoint(48.0, 16.0), GeoPoint(48.0, 16.5)), parseSteps("16.0,48.0|depart||\n16.5,48.0|arrive||\n"))
+                  val mid = GeoPoint(48.0005, 16.25)
+                  assertTrue(distanceKm(mid, sparse.points[0]) > 10.0 && distanceKm(mid, sparse.points[1]) > 10.0)
+                  assertTrue(matchRoute(sparse.points, mid).crossTrackKm < 0.06)
+                  assertTrue(!checkOffRoute(sparse, mid, 10f, 1000L).beyondThreshold)
+                  assertTrue(nextGuidance(sparse, mid)!!.instruction != "Mimo trasy")
+              }
+
+              @Test fun longitudeIsScaledByLatitude() {
+                  val m = matchRoute(listOf(GeoPoint(48.0, 16.0), GeoPoint(48.1, 16.0)), GeoPoint(48.05, 16.01))
+                  assertTrue(m.crossTrackKm > 0.7 && m.crossTrackKm < 0.8, m.crossTrackKm.toString())
+              }
+
+              @Test fun noisyGpsNearRouteNeverConfirmsOffRoute() {
+                  val detector = OffRouteDetector()
+                  val noise = listOf(0.00040, -0.00060, 0.00080, -0.00050, 0.00070, -0.00090, 0.00050)
+                  for (n in noise) {
+                      val c = check(GeoPoint(48.0 + n, 16.015), accuracyM = 25f)
+                      assertTrue(!c.beyondThreshold, c.toString())
+                      assertTrue(!detector.update(c))
+                  }
+              }
+
+              @Test fun genuineDisplacementConfirmsOnlyAfterConsecutiveFixes() {
+                  val detector = OffRouteDetector()
+                  val far = GeoPoint(48.01, 16.02)
+                  assertTrue(check(far).crossTrackKm > 1.0)
+                  assertTrue(!detector.update(check(far)))
+                  assertTrue(!detector.update(check(far)))
+                  assertTrue(detector.update(check(far)))
+                  assertEquals("Mimo trasy", nextInstruction(plan, far, detector.update(check(far))))
+                  assertTrue(!detector.update(check(GeoPoint(48.0, 16.02))))
+                  assertEquals(0, detector.consecutive())
+              }
+
+              @Test fun singleOutlierDoesNotConfirm() {
+                  val detector = OffRouteDetector()
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.0, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertEquals(2, detector.consecutive())
+              }
+
+              @Test fun staleOrInaccurateFixesAreIgnored() {
+                  assertTrue(!fixUsable(10f, 20000L))
+                  assertTrue(!fixUsable(10f, -1L))
+                  assertTrue(!fixUsable(150f, 1000L))
+                  assertTrue(fixUsable(null, 1000L))
+                  val detector = OffRouteDetector()
+                  val far = GeoPoint(48.01, 16.02)
+                  repeat(5) { assertTrue(!detector.update(check(far, accuracyM = 300f))) }
+                  repeat(5) { assertTrue(!detector.update(check(far, ageMs = 60000L))) }
+                  assertEquals(0, detector.consecutive())
+                  assertTrue(offRouteThresholdKm(100f) >= 0.2 && offRouteThresholdKm(null) == OFF_ROUTE_KM)
+              }
+
+              @Test fun unconfirmedOffsetKeepsGuidingAlongRoute() {
+                  val far = GeoPoint(48.0008, 16.015)
+                  assertEquals(nextInstruction(plan, line[1], false)!!.substringBefore(" o "), nextInstruction(plan, far, false)!!.substringBefore(" o "))
+                  assertTrue(nextInstruction(plan, GeoPoint(48.01, 16.02), false) != "Mimo trasy")
+              }
+
+              @Test fun logMessageContainsAgeAccuracyDistanceAndThreshold() {
+                  val c = check(GeoPoint(48.01, 16.02), accuracyM = 12f, ageMs = 2500L)
+                  val msg = offRouteLogMessage(c, 12f, 2500L, 1, false)
+                  assertTrue(msg.contains("fixAgeMs=2500") && msg.contains("accuracyM=12") && msg.contains("crossTrackM=") && msg.contains("thresholdM=150") && msg.contains("consecutive=1/3"), msg)
+              }
+
+              @Test fun followZoomIsRestoredWhenCameraWasLeftZoomedOut() {
+                  assertEquals(FOLLOW_ZOOM, followZoom(false, 4.2), 0.0)
+                  assertEquals(FOLLOW_ZOOM, followZoom(true, 6.0), 0.0)
+                  assertEquals(16.2, followZoom(true, 16.2), 0.0)
+              }
+
+              @Test fun courseBearingOnlyWhenMovingWithBearing() {
+                  assertEquals(90.0, courseBearing(true, 90f, 10f)!!, 0.001)
+                  assertEquals(350.0, courseBearing(true, -10f, 10f)!!, 0.001)
+                  assertNull(courseBearing(true, 90f, 0.5f))
+                  assertNull(courseBearing(false, 90f, 10f))
+                  assertTrue(FOLLOW_ZOOM >= 16.0 && FOLLOW_TILT > 0.0)
+              }
+
+              @Test fun speechIsDrivenByRealPlanProgress() {
+                  val speech = SpokenGuidance()
+                  val spoken = (0..4).mapNotNull { speech.next(nextGuidance(plan, line[it])) }
+                  assertTrue(spoken.isNotEmpty())
+                  assertEquals(spoken.size, spoken.toSet().size, spoken.toString())
+                  assertEquals("teraz", spokenDistance(10.0))
+                  assertEquals("o 350 metrov", spokenDistance(350.0))
+              }
+
+              @Test fun fitBoundsSpanFromCurrentAreaToMunich() {
+                  val start = GeoPoint(48.57385, 16.69180)
+                  val munich = GeoPoint(48.1371, 11.5754)
+                  val points = routeFitPoints(listOf(start, GeoPoint(48.3, 14.0)), munich)
+                  assertTrue(points.minOf { it.longitude } <= munich.longitude)
+                  assertTrue(points.maxOf { it.longitude } >= start.longitude)
+              }
+
+              @Test fun followEventsSetExpectedState() {
+                  assertTrue(FollowEvent.NAVIGATION_ENTRY.followAfter)
+                  assertTrue(FollowEvent.RESUME_BUTTON.followAfter)
+                  assertTrue(!FollowEvent.USER_GESTURE.followAfter)
+                  assertTrue(!FollowEvent.WHOLE_ROUTE_REQUEST.followAfter)
+              }
+
+              @Test fun followLogDistinguishesGestureFromWholeRouteFit() {
+                  val gesture = followLogMessage(true, FollowEvent.USER_GESTURE)
+                  val fit = followLogMessage(true, FollowEvent.WHOLE_ROUTE_REQUEST)
+                  assertEquals("GPS follow true -> false (user map gesture)", gesture)
+                  assertEquals("GPS follow true -> false (whole-route button)", fit)
+                  assertTrue(gesture != fit)
+              }
+          }
+          '''.lstrip("\n")
+          test_dir = Path("android-project/app/src/test/java/com/oli/routesave/ui/compose")
+          test_dir.mkdir(parents=True, exist_ok=True)
+          (test_dir / "MapNavigationLogicTest.kt").write_text(logic_test)
           call_text = compose.read_text()
           follow_state = "var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }"
           if call_text.count(follow_state) != 1:
               raise SystemExit("DriveScreen route-keyed followGps state anchor missing or duplicated.")
-          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { followGps = false }"
+          map_call_anchor = "followGps = followGps, fitRouteRequest = fitRouteRequest, onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }"
           if call_text.count(map_call_anchor) != 1:
               raise SystemExit("Final DriveScreen map call anchor missing or duplicated.")
           call_text = call_text.replace(
@@ -2794,12 +3325,61 @@ jobs:
               "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null), " + map_call_anchor,
               1
           )
-          gesture_callback = "onUserGesture = { followGps = false }"
-          if call_text.count(gesture_callback) != 1:
-              raise SystemExit("Final GPS gesture callback anchor missing or duplicated.")
+          entry_effect = "LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }"
+          if call_text.count(entry_effect) != 1:
+              raise SystemExit("Navigation-entry effect anchor missing or duplicated; cannot add spoken guidance.")
+          spoken_code = (
+              entry_effect + "\n"
+              "              val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry), parseSteps(drivePrefs.getString(\"last_route_steps\", null))) }\n"
+              "              val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }\n"
+              "              val offRouteDetector = remember(savedRouteGeometry) { OffRouteDetector() }\n"
+              "              val offRouteConfirmed = remember(liveLocation, navPlan) {\n"
+              "                  liveLocation?.let { fix ->\n"
+              "                      val ageMs = (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000L\n"
+              "                      val accuracyM = if (fix.hasAccuracy()) fix.accuracy else null\n"
+              "                      val check = checkOffRoute(navPlan, GeoPoint(fix.latitude, fix.longitude), accuracyM, ageMs)\n"
+              "                      val confirmed = offRouteDetector.update(check)\n"
+              "                      android.util.Log.d(\"OLIRoute\", \"Off-route check: \" + offRouteLogMessage(check, accuracyM, ageMs, offRouteDetector.consecutive(), confirmed))\n"
+              "                      confirmed\n"
+              "                  } ?: false\n"
+              "              }\n"
+              "              val navGuidance = remember(liveLocation, navPlan, offRouteConfirmed) { nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, offRouteConfirmed) }\n"
+              "              var guidanceVoiceReady by remember { mutableStateOf(false) }\n"
+              "              val guidanceTts = remember(driveContext) {\n"
+              "                  try {\n"
+              "                      var created: android.speech.tts.TextToSpeech? = null\n"
+              "                      created = android.speech.tts.TextToSpeech(driveContext.applicationContext) { status ->\n"
+              "                          val engine = created\n"
+              "                          if (status == android.speech.tts.TextToSpeech.SUCCESS && engine != null) {\n"
+              "                              val language = engine.setLanguage(java.util.Locale(\"sk\", \"SK\"))\n"
+              "                              guidanceVoiceReady = language != android.speech.tts.TextToSpeech.LANG_MISSING_DATA && language != android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED\n"
+              "                              try {\n"
+              "                                  engine.setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())\n"
+              "                              } catch (_: Exception) { }\n"
+              "                          }\n"
+              "                          android.util.Log.d(\"OLIVoice\", \"Guidance TTS init status=$status ready=$guidanceVoiceReady\")\n"
+              "                      }\n"
+              "                      created\n"
+              "                  } catch (e: Exception) {\n"
+              "                      android.util.Log.d(\"OLIVoice\", \"Guidance TTS unavailable: \" + e.message)\n"
+              "                      null\n"
+              "                  }\n"
+              "              }\n"
+              "              DisposableEffect(guidanceTts) { onDispose { guidanceTts?.stop(); guidanceTts?.shutdown() } }\n"
+              "              LaunchedEffect(navGuidance, guidanceVoiceReady) {\n"
+              "                  if (!guidanceVoiceReady) return@LaunchedEffect\n"
+              "                  val phrase = spokenGuidance.next(navGuidance) ?: return@LaunchedEffect\n"
+              "                  android.util.Log.d(\"OLIVoice\", \"Speaking: \" + phrase)\n"
+              "                  guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, \"oli-guidance\")\n"
+              "              }"
+          )
+          call_text = call_text.replace(entry_effect, spoken_code, 1)
+          preview_call = "MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry)"
+          if call_text.count(preview_call) != 1:
+              raise SystemExit("Route preview map call anchor missing or duplicated.")
           call_text = call_text.replace(
-              gesture_callback,
-              'onUserGesture = { android.util.Log.d("OLIMap", "GPS follow paused: user map gesture"); followGps = false }',
+              preview_call,
+              "MapLibreMapView(Modifier.fillMaxWidth().height(220.dp), routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates)",
               1
           )
           manifest = root / "AndroidManifest.xml"
@@ -2818,21 +3398,58 @@ jobs:
           for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
               if permission not in declared_permissions:
                   raise SystemExit(f"Final AndroidManifest.xml is missing {permission}.")
+          overlay_start = "    if (!infoPanelOpen) Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f)"
+          overlay_end = "Text(gpsText, fontSize = 12.sp) } }"
+          if call_text.count(overlay_start) != 1 or call_text.count(overlay_end) != 1:
+              raise SystemExit("Collapsed navigation overlay anchors missing or duplicated.")
+          overlay_from = call_text.index(overlay_start)
+          overlay_to = call_text.index(overlay_end, overlay_from) + len(overlay_end)
+          nav_overlay = r'''    val navGuidanceText = navGuidance?.let { guidanceText(it) }
+              val navDestination = parseLonLat(drivePrefs.getString("last_destination_coordinates", null))
+              val navView = androidx.compose.ui.platform.LocalView.current
+              DisposableEffect(navView) {
+                  navView.keepScreenOn = true
+                  onDispose { navView.keepScreenOn = false }
+              }
+              if (!infoPanelOpen) {
+                  navGuidanceText?.let { instruction ->
+            Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f), shape = RoundedCornerShape(16.dp), modifier = Modifier.align(Alignment.TopCenter).padding(start = 12.dp, end = 12.dp, top = 64.dp)) {
+                Text(instruction, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 3, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+            }
+                  }
+                  Surface(color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp)) {
+            Text(String.format(java.util.Locale.getDefault(), "%.0f km · ", remainingKm) + arrivalText + " · " + remainingDurationText + " · " + speedText, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                  }
+              }'''
+          call_text = call_text[:overlay_from] + nav_overlay + call_text[overlay_to:]
+          info_anchor = "Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text(gpsText, modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }"
+          if call_text.count(info_anchor) != 1:
+              raise SystemExit("Info panel GPS line anchor missing or duplicated.")
+          info_debug = r'''
+                  Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Cieľ: " + (savedRouteDestination ?: "") + (navDestination?.let { String.format(java.util.Locale.getDefault(), " (%.4f, %.4f)", it.latitude, it.longitude) } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, navDestination)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold) }
+            }
+                  }'''
+          call_text = call_text.replace(info_anchor, info_anchor + info_debug, 1)
           for needle in ("LaunchedEffect(savedRouteGeometry)", "gpsPermissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_FINE_LOCATION)",
                          "checkSelfPermission(driveContext, android.Manifest.permission.ACCESS_COARSE_LOCATION)",
                          "manager.getCurrentLocation(provider", "manager.requestLocationUpdates(provider, 1000L, 0f, listener",
                          "override fun onLocationChanged(location: android.location.Location)", "gpsStatus",
-                         "Text(gpsText, fontSize = 12.sp)", "liveLocation = liveLocation"):
+                         "Text(gpsText, modifier = Modifier.padding(12.dp)", "liveLocation = liveLocation"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated DriveScreen GPS activation check failed: {needle}")
-          for needle in ('putString("last_destination_coordinates", to.first.toString() + "," + to.second)',
+          for needle in ('putString("last_destination_coordinates", result.destinationLonLat)',
+                         "destinationCoordinates = result.destinationLonLat",
+                         "ROUTE_END_TOLERANCE_KM", "routeEndToDestinationKm", "&steps=true", 'putString("last_route_steps", result.steps)',
                          "remove(\"last_destination_coordinates\")",
                          "destinationCoordinates = drivePrefs.getString(\"last_destination_coordinates\", null)"):
               if needle not in call_text:
                   raise SystemExit(f"Final generated route destination/follow wiring is missing: {needle}")
           for needle in ("private fun destinationPoint(coordinatesText: String?, routePoints: List<LatLng>): LatLng?",
-                         "destinationPoint(destinationCoordinates, points)", "return LatLng(latitude, longitude)",
+                         "destinationPoint(destinationCoordinates, points)", "resolveDestination(coordinatesText, routeEnd)",
                          "routePoints.lastOrNull()"):
               if needle not in new:
                   raise SystemExit(f"Final generated destination coordinate handling is missing: {needle}")
@@ -2841,14 +3458,37 @@ jobs:
           if 'val destination = destinationPoint(destinationCoordinates, points)' not in new or '.position(destination)' not in new or '.title("Cieľ")' not in new:
               raise SystemExit("Final generated MapLibre source is missing the route destination marker.")
           for needle in ("var followGps by remember(savedRouteGeometry) { mutableStateOf(true) }",
-                         "followGps = followGps", "GPS follow paused: user map gesture",
+                         "followGps = followGps", "fun updateFollow(event: FollowEvent)", "followLogMessage(followGps, event)",
+                         "LaunchedEffect(savedRouteGeometry) { updateFollow(FollowEvent.NAVIGATION_ENTRY) }",
+                         "onUserGesture = { updateFollow(FollowEvent.USER_GESTURE) }",
+                         "updateFollow(FollowEvent.WHOLE_ROUTE_REQUEST)",
                          'Text(if (followGps) "Zobraziť celú trasu" else "Sledovať GPS")',
-                         "Button(onClick = { followGps = true }"):
+                         "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
+                         "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
+                         'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }",
+                         "navGuidance?.let { guidanceText(it) }", "val offRouteDetector = remember(savedRouteGeometry) { OffRouteDetector() }", "offRouteLogMessage(check, accuracyM, ageMs", "nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, offRouteConfirmed)", "val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
+                         "navView.keepScreenOn = true", "onDispose { navView.keepScreenOn = false }",
+                         "val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }", "spokenGuidance.next(navGuidance)",
+                         "guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH", "guidanceTts?.stop(); guidanceTts?.shutdown()",
+                         "Locale(\"sk\", \"SK\")"):
               if needle not in call_text:
                   raise SystemExit(f"Generated DriveScreen followGps code is missing: {needle}")
+          if "Text(gpsText, fontSize = 12.sp)" in call_text:
+              raise SystemExit("Diagnostic GPS text must not be part of the collapsed navigation overlay.")
+          overlay_scope = call_text[call_text.index("    if (!infoPanelOpen) {"):call_text.index("    if (infoPanelOpen) Column(")]
+          for diagnostic in ("gpsText", "navDestination", "destinationCue", "savedRouteDestination"):
+              if diagnostic in overlay_scope:
+                  raise SystemExit(f"Collapsed navigation overlay must not show diagnostics: {diagnostic}")
+          for needle in ("courseBearing(location.hasBearing()", "followZoom(followCentered, readyMap.cameraPosition.zoom)", "CameraPosition.Builder()", ".tilt(FOLLOW_TILT)", ".zoom(zoom)", "readyMap.setPadding(0, 0, 0, 0)"):
+              if needle not in new:
+                  raise SystemExit(f"Final generated active-navigation camera is missing: {needle}")
+          if "13.5" in new:
+              raise SystemExit("Final generated follow camera still uses the old overview zoom.")
           for obsolete in ("showWholeRoute", "onUserPan"):
               if obsolete in call_text:
                   raise SystemExit(f"Generated DriveScreen retains obsolete camera state: {obsolete}")
+          if call_text.count("followGps = false") or call_text.count("followGps = true"):
+              raise SystemExit("Generated DriveScreen changes followGps outside updateFollow; every change must be logged.")
           if "var followGps by rememberSaveable" in call_text:
               raise SystemExit("Generated DriveScreen must not restore a previously paused GPS-follow state.")
           compose.write_text(call_text)
