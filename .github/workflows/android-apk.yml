@@ -2408,8 +2408,18 @@ jobs:
               }
 
           ''' 
-          if "Kam chcete ísť?" not in s:
-              s = s[:vehicle_match.start()] + home_ui + s[vehicle_match.start():]
+          home_start = s.find("private fun HomeScreen(")
+          home_end = s.find("@Composable", home_start + 1)
+          if home_start < 0 or home_end < 0:
+              raise SystemExit("HomeScreen boundaries not found before UI insertion.")
+          home_block = s[home_start:home_end]
+          if "Kam chcete ísť?" not in home_block:
+              # Recompute the insertion point after HomeScreen boundaries are established.
+              vehicle_match = vehicle_pattern.search(home_block)
+              if not vehicle_match:
+                  raise SystemExit("Vehicle card anchor not found inside HomeScreen.")
+              insert_at = home_start + vehicle_match.start()
+              s = s[:insert_at] + home_ui + s[insert_at:]
           p.write_text(s)
           print("Added the approved destination/search and home quick actions; route planner now reads the saved home destination.")
           PY
