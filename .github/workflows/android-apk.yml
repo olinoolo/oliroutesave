@@ -2336,17 +2336,9 @@ jobs:
               }
           ''' + s[body_open:]
 
-          vehicle_anchor = '''        Card(
-                      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                      onClick = onVehicleClick
-                  ) {'''
-          if vehicle_anchor not in s:
-              # Accept the same block with the standard indentation used by the source archive.
-              vehicle_anchor = '''        Card(
-                  colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                  onClick = onVehicleClick
-              ) {'''
-          if vehicle_anchor not in s:
+          vehicle_pattern = re.compile(r'(?m)^        Card\\(\\n\\s+colors = CardDefaults\\.cardColors\\(containerColor = MaterialTheme\\.colorScheme\\.surface\\),\\n\\s+onClick = onVehicleClick\\n\\s+\\) \\{')
+          vehicle_match = vehicle_pattern.search(s)
+          if not vehicle_match:
               raise SystemExit("Vehicle card anchor not found; refusing to insert UI at an unknown location.")
 
           home_ui = '''        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
