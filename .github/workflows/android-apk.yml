@@ -2743,7 +2743,7 @@ jobs:
                   val target = LatLng(location.latitude, location.longitude)
                   // Active navigation view: close zoom, tilted, course-up, vehicle in the lower part of the screen.
                   val course = courseBearing(location.hasBearing(), location.bearing, if (location.hasSpeed()) location.speed else 0f)
-                  val zoom = if (!followCentered) FOLLOW_ZOOM else readyMap.cameraPosition.zoom
+                  val zoom = followZoom(followCentered, readyMap.cameraPosition.zoom)
                   if (!followCentered) {
                       followCentered = true
                       readyMap.setPadding(0, (mapView.height * 0.35f).toInt(), 0, 0)
@@ -2766,7 +2766,7 @@ jobs:
                   val routeLoaded = routeGeometry != lastFittedRouteGeometry
                   val requested = fitRouteRequest != lastFitRouteRequest
                   if (!routeLoaded && !requested) return@LaunchedEffect
-                  if (routeLoaded && !requested && followGps && liveLocation != null) {
+                  if (routeLoaded && !requested && followGps) {
                       lastFittedRouteGeometry = routeGeometry
                       lastFitRouteRequest = fitRouteRequest
                       return@LaunchedEffect
@@ -2804,7 +2804,7 @@ jobs:
                          ".position(destination)",
                          "destinationMarkerIcon(context)", "IconFactory.getInstance(context).fromBitmap(bitmap)",
                          "Color.rgb(0, 150, 70)", "readyMap.removeMarker(it)",
-                         "if (routeLoaded && !requested && followGps && liveLocation != null)",
+                         "if (routeLoaded && !requested && followGps) {",
                          "lastFittedRouteGeometry = routeGeometry"):
               if needle not in new:
                   raise SystemExit(f"Generated map source is missing: {needle}")
@@ -2937,22 +2937,86 @@ jobs:
           }
 
           /** Next maneuver ahead of the live position, with distance along the route; null when there is no guidance data. */
-          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?): String? =
-              nextGuidance(plan, location)?.let { it.instruction + (it.distanceKm?.let { km -> " o " + formatDistance(km) } ?: "") }
+          internal fun guidanceText(g: Guidance): String = g.instruction + (g.distanceKm?.let { km -> " o " + formatDistance(km) } ?: "")
+
+          internal fun nextInstruction(plan: NavPlan, location: GeoPoint?, offRouteConfirmed: Boolean = true): String? =
+              nextGuidance(plan, location, offRouteConfirmed)?.let { guidanceText(it) }
 
           /** Structured guidance: key identifies the maneuver so speech can tell "same maneuver" from "new maneuver". */
           internal data class Guidance(val key: String, val instruction: String, val distanceKm: Double?)
 
-          internal fun nextGuidance(plan: NavPlan, location: GeoPoint?): Guidance? {
-              if (location == null || plan.points.size < 2 || plan.steps.isEmpty()) return null
-              val progress = nearestIndex(plan.points, location)
-              if (distanceKm(location, plan.points[progress]) > OFF_ROUTE_KM) return Guidance("off-route", "Mimo trasy", null)
-              val next = plan.stepIndex.indexOfFirst { it > progress }
-              if (next < 0) return Guidance("arrived", "Ste v cieli", null)
-              var km = distanceKm(location, plan.points[progress])
-              for (i in progress until plan.stepIndex[next]) km += distanceKm(plan.points[i], plan.points[i + 1])
-              return Guidance("step:" + next, describeStep(plan.steps[next]), km)
+          /** Position on the route polyline: segment index, fraction along it and cross-track distance to that segment. */
+          internal data class RouteMatch(val segment: Int, val fraction: Double, val crossTrackKm: Double)
+
+          /** Nearest route SEGMENT (not vertex) with longitude scaled by cos(latitude); sparse geometry cannot cause false offsets. */
+          internal fun matchRoute(points: List<GeoPoint>, p: GeoPoint): RouteMatch {
+              val kmPerDegree = 111.195
+              val k = Math.cos(Math.toRadians(p.latitude))
+              var best = RouteMatch(0, 0.0, Double.MAX_VALUE)
+              for (i in 0 until points.size - 1) {
+                  val ax = (points[i].longitude - p.longitude) * k * kmPerDegree
+                  val ay = (points[i].latitude - p.latitude) * kmPerDegree
+                  val bx = (points[i + 1].longitude - p.longitude) * k * kmPerDegree
+                  val by = (points[i + 1].latitude - p.latitude) * kmPerDegree
+                  val dx = bx - ax
+                  val dy = by - ay
+                  val len2 = dx * dx + dy * dy
+                  val t = if (len2 > 0.0) ((-ax * dx - ay * dy) / len2).coerceIn(0.0, 1.0) else 0.0
+                  val d = Math.hypot(ax + t * dx, ay + t * dy)
+                  if (d < best.crossTrackKm) best = RouteMatch(i, t, d)
+              }
+              return best
           }
+
+          internal fun nextGuidance(plan: NavPlan, location: GeoPoint?, offRouteConfirmed: Boolean = true): Guidance? {
+              if (location == null || plan.points.size < 2 || plan.steps.isEmpty()) return null
+              val match = matchRoute(plan.points, location)
+              if (offRouteConfirmed && match.crossTrackKm > OFF_ROUTE_KM) return Guidance("off-route", "Mimo trasy", null)
+              var km = (1.0 - match.fraction) * distanceKm(plan.points[match.segment], plan.points[match.segment + 1])
+              var at = match.segment + 1
+              for (next in plan.steps.indices) {
+                  val target = plan.stepIndex[next]
+                  if (target < at) continue
+                  while (at < target) { km += distanceKm(plan.points[at], plan.points[at + 1]); at++ }
+                  if (km >= MANEUVER_REACHED_KM) return Guidance("step:" + next, describeStep(plan.steps[next]), km)
+              }
+              return Guidance("arrived", "Ste v cieli", null)
+          }
+
+          internal const val MANEUVER_REACHED_KM = 0.02
+          internal const val MAX_FIX_ACCURACY_M = 100f
+          internal const val MAX_FIX_AGE_MS = 15000L
+          internal const val OFF_ROUTE_CONSECUTIVE_FIXES = 3
+
+          /** A fix is usable for off-route decisions only when it is fresh and reasonably accurate; unknown accuracy is accepted. */
+          internal fun fixUsable(accuracyM: Float?, ageMs: Long): Boolean =
+              ageMs in 0..MAX_FIX_AGE_MS && (accuracyM == null || accuracyM <= MAX_FIX_ACCURACY_M)
+
+          /** The tolerance grows with reported accuracy but never drops below OFF_ROUTE_KM. */
+          internal fun offRouteThresholdKm(accuracyM: Float?): Double =
+              maxOf(OFF_ROUTE_KM, 2.0 * (accuracyM ?: 0f) / 1000.0)
+
+          internal data class OffRouteCheck(val usable: Boolean, val crossTrackKm: Double, val thresholdKm: Double) {
+              val beyondThreshold: Boolean get() = crossTrackKm > thresholdKm
+          }
+
+          internal fun checkOffRoute(plan: NavPlan, location: GeoPoint, accuracyM: Float?, ageMs: Long): OffRouteCheck =
+              OffRouteCheck(fixUsable(accuracyM, ageMs), matchRoute(plan.points, location).crossTrackKm, offRouteThresholdKm(accuracyM))
+
+          /** Off-route is confirmed only after several consecutive usable fixes beyond the threshold; unusable fixes change nothing. */
+          internal class OffRouteDetector(private val required: Int = OFF_ROUTE_CONSECUTIVE_FIXES) {
+              private var count = 0
+              fun update(check: OffRouteCheck): Boolean {
+                  if (check.usable) count = if (check.beyondThreshold) count + 1 else 0
+                  return count >= required
+              }
+              fun consecutive(): Int = count
+          }
+
+          internal fun offRouteLogMessage(check: OffRouteCheck, accuracyM: Float?, ageMs: Long, consecutive: Int, confirmed: Boolean): String =
+              String.format(java.util.Locale.US, "fixAgeMs=%d accuracyM=%s usable=%s crossTrackM=%.0f thresholdM=%.0f consecutive=%d/%d offRoute=%s",
+                  ageMs, accuracyM?.let { String.format(java.util.Locale.US, "%.0f", it) } ?: "n/a", check.usable,
+                  check.crossTrackKm * 1000.0, check.thresholdKm * 1000.0, consecutive, OFF_ROUTE_CONSECUTIVE_FIXES, confirmed)
 
           /** Distances (metres) at which an upcoming maneuver is announced again. */
           internal val SPEECH_THRESHOLDS_M = listOf(500, 200, 100)
@@ -2991,6 +3055,11 @@ jobs:
           internal const val OFF_ROUTE_KM = 0.15
 
           internal const val FOLLOW_ZOOM = 17.0
+          internal const val FOLLOW_MIN_ZOOM = 15.0
+
+          /** Zoom for the follow camera: close zoom on entry, and again whenever something left the camera zoomed out. */
+          internal fun followZoom(alreadyCentered: Boolean, currentZoom: Double): Double =
+              if (!alreadyCentered || currentZoom < FOLLOW_MIN_ZOOM) FOLLOW_ZOOM else currentZoom
           internal const val FOLLOW_TILT = 50.0
           internal const val MIN_COURSE_SPEED_MPS = 1.5f
 
@@ -3122,6 +3191,84 @@ jobs:
                   assertNull(speech.next(null))
               }
 
+              private fun check(location: GeoPoint, accuracyM: Float? = 10f, ageMs: Long = 1000L) = checkOffRoute(plan, location, accuracyM, ageMs)
+
+              @Test fun midpointOfLongSegmentIsOnRoute() {
+                  val sparse = NavPlan(listOf(GeoPoint(48.0, 16.0), GeoPoint(48.0, 16.5)), parseSteps("16.0,48.0|depart||\n16.5,48.0|arrive||\n"))
+                  val mid = GeoPoint(48.0005, 16.25)
+                  assertTrue(distanceKm(mid, sparse.points[0]) > 10.0 && distanceKm(mid, sparse.points[1]) > 10.0)
+                  assertTrue(matchRoute(sparse.points, mid).crossTrackKm < 0.06)
+                  assertTrue(!checkOffRoute(sparse, mid, 10f, 1000L).beyondThreshold)
+                  assertTrue(nextGuidance(sparse, mid)!!.instruction != "Mimo trasy")
+              }
+
+              @Test fun longitudeIsScaledByLatitude() {
+                  val m = matchRoute(listOf(GeoPoint(48.0, 16.0), GeoPoint(48.1, 16.0)), GeoPoint(48.05, 16.01))
+                  assertTrue(m.crossTrackKm > 0.7 && m.crossTrackKm < 0.8, m.crossTrackKm.toString())
+              }
+
+              @Test fun noisyGpsNearRouteNeverConfirmsOffRoute() {
+                  val detector = OffRouteDetector()
+                  val noise = listOf(0.00040, -0.00060, 0.00080, -0.00050, 0.00070, -0.00090, 0.00050)
+                  for (n in noise) {
+                      val c = check(GeoPoint(48.0 + n, 16.015), accuracyM = 25f)
+                      assertTrue(!c.beyondThreshold, c.toString())
+                      assertTrue(!detector.update(c))
+                  }
+              }
+
+              @Test fun genuineDisplacementConfirmsOnlyAfterConsecutiveFixes() {
+                  val detector = OffRouteDetector()
+                  val far = GeoPoint(48.01, 16.02)
+                  assertTrue(check(far).crossTrackKm > 1.0)
+                  assertTrue(!detector.update(check(far)))
+                  assertTrue(!detector.update(check(far)))
+                  assertTrue(detector.update(check(far)))
+                  assertEquals("Mimo trasy", nextInstruction(plan, far, detector.update(check(far))))
+                  assertTrue(!detector.update(check(GeoPoint(48.0, 16.02))))
+                  assertEquals(0, detector.consecutive())
+              }
+
+              @Test fun singleOutlierDoesNotConfirm() {
+                  val detector = OffRouteDetector()
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.0, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertTrue(!detector.update(check(GeoPoint(48.01, 16.02))))
+                  assertEquals(2, detector.consecutive())
+              }
+
+              @Test fun staleOrInaccurateFixesAreIgnored() {
+                  assertTrue(!fixUsable(10f, 20000L))
+                  assertTrue(!fixUsable(10f, -1L))
+                  assertTrue(!fixUsable(150f, 1000L))
+                  assertTrue(fixUsable(null, 1000L))
+                  val detector = OffRouteDetector()
+                  val far = GeoPoint(48.01, 16.02)
+                  repeat(5) { assertTrue(!detector.update(check(far, accuracyM = 300f))) }
+                  repeat(5) { assertTrue(!detector.update(check(far, ageMs = 60000L))) }
+                  assertEquals(0, detector.consecutive())
+                  assertTrue(offRouteThresholdKm(100f) >= 0.2 && offRouteThresholdKm(null) == OFF_ROUTE_KM)
+              }
+
+              @Test fun unconfirmedOffsetKeepsGuidingAlongRoute() {
+                  val far = GeoPoint(48.0008, 16.015)
+                  assertEquals(nextInstruction(plan, line[1], false)!!.substringBefore(" o "), nextInstruction(plan, far, false)!!.substringBefore(" o "))
+                  assertTrue(nextInstruction(plan, GeoPoint(48.01, 16.02), false) != "Mimo trasy")
+              }
+
+              @Test fun logMessageContainsAgeAccuracyDistanceAndThreshold() {
+                  val c = check(GeoPoint(48.01, 16.02), accuracyM = 12f, ageMs = 2500L)
+                  val msg = offRouteLogMessage(c, 12f, 2500L, 1, false)
+                  assertTrue(msg.contains("fixAgeMs=2500") && msg.contains("accuracyM=12") && msg.contains("crossTrackM=") && msg.contains("thresholdM=150") && msg.contains("consecutive=1/3"), msg)
+              }
+
+              @Test fun followZoomIsRestoredWhenCameraWasLeftZoomedOut() {
+                  assertEquals(FOLLOW_ZOOM, followZoom(false, 4.2), 0.0)
+                  assertEquals(FOLLOW_ZOOM, followZoom(true, 6.0), 0.0)
+                  assertEquals(16.2, followZoom(true, 16.2), 0.0)
+              }
+
               @Test fun courseBearingOnlyWhenMovingWithBearing() {
                   assertEquals(90.0, courseBearing(true, 90f, 10f)!!, 0.001)
                   assertEquals(350.0, courseBearing(true, -10f, 10f)!!, 0.001)
@@ -3185,6 +3332,18 @@ jobs:
               entry_effect + "\n"
               "              val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry), parseSteps(drivePrefs.getString(\"last_route_steps\", null))) }\n"
               "              val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }\n"
+              "              val offRouteDetector = remember(savedRouteGeometry) { OffRouteDetector() }\n"
+              "              val offRouteConfirmed = remember(liveLocation, navPlan) {\n"
+              "                  liveLocation?.let { fix ->\n"
+              "                      val ageMs = (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000L\n"
+              "                      val accuracyM = if (fix.hasAccuracy()) fix.accuracy else null\n"
+              "                      val check = checkOffRoute(navPlan, GeoPoint(fix.latitude, fix.longitude), accuracyM, ageMs)\n"
+              "                      val confirmed = offRouteDetector.update(check)\n"
+              "                      android.util.Log.d(\"OLIRoute\", \"Off-route check: \" + offRouteLogMessage(check, accuracyM, ageMs, offRouteDetector.consecutive(), confirmed))\n"
+              "                      confirmed\n"
+              "                  } ?: false\n"
+              "              }\n"
+              "              val navGuidance = remember(liveLocation, navPlan, offRouteConfirmed) { nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, offRouteConfirmed) }\n"
               "              var guidanceVoiceReady by remember { mutableStateOf(false) }\n"
               "              val guidanceTts = remember(driveContext) {\n"
               "                  try {\n"
@@ -3207,9 +3366,9 @@ jobs:
               "                  }\n"
               "              }\n"
               "              DisposableEffect(guidanceTts) { onDispose { guidanceTts?.stop(); guidanceTts?.shutdown() } }\n"
-              "              LaunchedEffect(liveLocation, navPlan, guidanceVoiceReady) {\n"
+              "              LaunchedEffect(navGuidance, guidanceVoiceReady) {\n"
               "                  if (!guidanceVoiceReady) return@LaunchedEffect\n"
-              "                  val phrase = spokenGuidance.next(nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })) ?: return@LaunchedEffect\n"
+              "                  val phrase = spokenGuidance.next(navGuidance) ?: return@LaunchedEffect\n"
               "                  android.util.Log.d(\"OLIVoice\", \"Speaking: \" + phrase)\n"
               "                  guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, \"oli-guidance\")\n"
               "              }"
@@ -3245,7 +3404,7 @@ jobs:
               raise SystemExit("Collapsed navigation overlay anchors missing or duplicated.")
           overlay_from = call_text.index(overlay_start)
           overlay_to = call_text.index(overlay_end, overlay_from) + len(overlay_end)
-          nav_overlay = r'''    val navGuidanceText = nextInstruction(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) })
+          nav_overlay = r'''    val navGuidanceText = navGuidance?.let { guidanceText(it) }
               val navDestination = parseLonLat(drivePrefs.getString("last_destination_coordinates", null))
               val navView = androidx.compose.ui.platform.LocalView.current
               DisposableEffect(navView) {
@@ -3307,9 +3466,9 @@ jobs:
                          "Button(onClick = { updateFollow(FollowEvent.RESUME_BUTTON) }",
                          "routeGeometry = routeGeometry, destinationCoordinates = destinationCoordinates",
                          'Text("Cieľ: " + (savedRouteDestination ?: "")', "destinationCue(liveLocation?.let { GeoPoint(it.latitude, it.longitude) }",
-                         "nextInstruction(navPlan, liveLocation", "val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
+                         "navGuidance?.let { guidanceText(it) }", "val offRouteDetector = remember(savedRouteGeometry) { OffRouteDetector() }", "offRouteLogMessage(check, accuracyM, ageMs", "nextGuidance(navPlan, liveLocation?.let { GeoPoint(it.latitude, it.longitude) }, offRouteConfirmed)", "val navPlan = remember(savedRouteGeometry) { NavPlan(routeGeoPoints(savedRouteGeometry)", 'getString("last_route_steps", null)',
                          "navView.keepScreenOn = true", "onDispose { navView.keepScreenOn = false }",
-                         "val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }", "spokenGuidance.next(nextGuidance(navPlan,",
+                         "val spokenGuidance = remember(savedRouteGeometry) { SpokenGuidance() }", "spokenGuidance.next(navGuidance)",
                          "guidanceTts?.speak(phrase, android.speech.tts.TextToSpeech.QUEUE_FLUSH", "guidanceTts?.stop(); guidanceTts?.shutdown()",
                          "Locale(\"sk\", \"SK\")"):
               if needle not in call_text:
@@ -3320,7 +3479,7 @@ jobs:
           for diagnostic in ("gpsText", "navDestination", "destinationCue", "savedRouteDestination"):
               if diagnostic in overlay_scope:
                   raise SystemExit(f"Collapsed navigation overlay must not show diagnostics: {diagnostic}")
-          for needle in ("courseBearing(location.hasBearing()", "CameraPosition.Builder()", ".tilt(FOLLOW_TILT)", ".zoom(zoom)", "FOLLOW_ZOOM", "readyMap.setPadding(0, 0, 0, 0)"):
+          for needle in ("courseBearing(location.hasBearing()", "followZoom(followCentered, readyMap.cameraPosition.zoom)", "CameraPosition.Builder()", ".tilt(FOLLOW_TILT)", ".zoom(zoom)", "readyMap.setPadding(0, 0, 0, 0)"):
               if needle not in new:
                   raise SystemExit(f"Final generated active-navigation camera is missing: {needle}")
           if "13.5" in new:
