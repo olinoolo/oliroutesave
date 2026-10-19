@@ -3509,7 +3509,7 @@ jobs:
           block = s[start:end]
 
           # The driving screen must react when route planning asynchronously saves a new route.
-          old = '''val savedRouteGeometry = drivePrefs.getString("last_route_geometry", null)
+          old = '''              val savedRouteGeometry = drivePrefs.getString("last_route_geometry", null)
               val savedRouteDistance = drivePrefs.getFloat("last_distance_km", 0f)
               val savedRouteDestination = drivePrefs.getString("last_destination", "")
               val savedRouteDestinationCoordinates = drivePrefs.getString("last_destination_coordinates", null)
