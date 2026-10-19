@@ -2304,6 +2304,111 @@ jobs:
           print("Removed repeated camera recentering from AndroidView.update so map drag and pinch gestures can complete.")
           PY
 
+      - name: Apply approved OLI RouteSave home screen layout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
+          s = p.read_text()
+
+          # Persist the home-screen destination so the route planner opens with the typed destination.
+          route_state = 'var destination by rememberSaveable { mutableStateOf("") }'
+          route_state_new = 'var destination by rememberSaveable { mutableStateOf(LocalContext.current.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE).getString("destination", "").orEmpty()) }'
+          if route_state in s:
+              s = s.replace(route_state, route_state_new, 1)
+          elif route_state_new not in s:
+              raise SystemExit("Route planner destination state not found; refusing an unsafe patch.")
+
+          home_start = s.find("private fun HomeScreen(")
+          if home_start < 0:
+              raise SystemExit("HomeScreen function not found.")
+          home_match = re.search(r'private fun HomeScreen\([\s\S]*?\)\s*\{', s[home_start:])
+          if not home_match:
+              raise SystemExit("HomeScreen function opening not found.")
+          body_open = home_start + home_match.end()
+          if "var homeDestination by rememberSaveable" not in s[body_open:body_open+700]:
+              s = s[:body_open] + '''
+              val homeContext = LocalContext.current
+              var homeDestination by rememberSaveable {
+                  mutableStateOf(homeContext.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE).getString("destination", "").orEmpty())
+              }
+          ''' + s[body_open:]
+
+          vehicle_anchor = '''        Card(
+                      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                      onClick = onVehicleClick
+                  ) {'''
+          if vehicle_anchor not in s:
+              # Accept the same block with the standard indentation used by the source archive.
+              vehicle_anchor = '''        Card(
+                  colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                  onClick = onVehicleClick
+              ) {'''
+          if vehicle_anchor not in s:
+              raise SystemExit("Vehicle card anchor not found; refusing to insert UI at an unknown location.")
+
+          home_ui = '''        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                  OutlinedTextField(
+                      value = homeDestination,
+                      onValueChange = { homeDestination = it },
+                      modifier = Modifier.fillMaxWidth(),
+                      singleLine = true,
+                      label = { Text("Kam chcete ísť?") },
+                      placeholder = { Text("Zadajte mesto alebo adresu") }
+                  )
+                  Button(
+                      onClick = {
+                          homeContext.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE)
+                              .edit().putString("destination", homeDestination.trim()).apply()
+                          onRouteClick()
+                      },
+                      modifier = Modifier.fillMaxWidth().height(50.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF7900))
+                  ) {
+                      Icon(Icons.Filled.Route, contentDescription = null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("Naplánovať trasu")
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Button(onClick = onRouteClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.Route, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Trasa")
+                      }
+                      OutlinedButton(onClick = onStartDrive, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Jazda")
+                      }
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedButton(onClick = onVehicleClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.DirectionsCar, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Moje vozidlo")
+                      }
+                      OutlinedButton(onClick = onCommunityClick, modifier = Modifier.weight(1f)) {
+                          Icon(Icons.Filled.People, contentDescription = null)
+                          Spacer(Modifier.width(5.dp))
+                          Text("Komunita")
+                      }
+                  }
+                  OutlinedButton(onClick = onAssistantClick, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                      Icon(Icons.Filled.Mic, contentDescription = null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("Hovoriť s Nikolasom")
+                  }
+              }
+
+          ''' 
+          if "Kam chcete ísť?" not in s:
+              s = s.replace(vehicle_anchor, home_ui + vehicle_anchor, 1)
+          p.write_text(s)
+          print("Added the approved destination/search and home quick actions; route planner now reads the saved home destination.")
+          PY
+
       - name: Build debug APK and save build log
         shell: bash
         run: |
