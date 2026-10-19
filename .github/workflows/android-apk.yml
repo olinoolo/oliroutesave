@@ -3499,65 +3499,68 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+          import textwrap
 
           p = Path("android-project/app/src/main/java/com/oli/routesave/ui/compose/RouteSaveComposeApp.kt")
           s = p.read_text()
           start = s.find("private fun DriveScreen(")
-          end = s.find("@Composable", start + 1)
-          if start < 0 or end < 0:
-              raise SystemExit("DriveScreen boundaries not found; refusing to build an unverified navigation screen.")
-          block = s[start:end]
+          if start < 0:
+              raise SystemExit("DriveScreen not found; refusing to build.")
+          next_screen = s.find("@Composable", start + len("private fun DriveScreen("))
+          block = s[start: next_screen if next_screen >= 0 else len(s)]
 
-          # The driving screen must react when route planning asynchronously saves a new route.
-          import re
-          import textwrap
-
-          new = textwrap.dedent("""\
-              var savedRouteGeometry by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_route_geometry", null)) }
-              var savedRouteDistance by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_distance_km", 0f)) }
-              var savedRouteDestination by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination", "")) }
-              var savedRouteDestinationCoordinates by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination_coordinates", null)) }
-              var savedRouteDurationMinutes by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_duration_minutes", 0f)) }
-
-              DisposableEffect(drivePrefs) {
-                  val routeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-                      when (key) {
-                          "last_route_geometry" -> savedRouteGeometry = prefs.getString(key, null)
-                          "last_distance_km" -> savedRouteDistance = prefs.getFloat(key, 0f)
-                          "last_destination" -> savedRouteDestination = prefs.getString(key, "")
-                          "last_destination_coordinates" -> savedRouteDestinationCoordinates = prefs.getString(key, null)
-                          "last_duration_minutes" -> savedRouteDurationMinutes = prefs.getFloat(key, 0f)
-                      }
-                  }
-                  drivePrefs.registerOnSharedPreferenceChangeListener(routeListener)
-                  onDispose { drivePrefs.unregisterOnSharedPreferenceChangeListener(routeListener) }
-              }""")
+          # Replace the five saved-route reads regardless of their indentation.
           pattern = re.compile(
-              r'(?m)^([ \\t]*)val savedRouteGeometry = drivePrefs\\.getString\\("last_route_geometry", null\\)\\n'
-              r'\\1val savedRouteDistance = drivePrefs\\.getFloat\\("last_distance_km", 0f\\)\\n'
-              r'\\1val savedRouteDestination = drivePrefs\\.getString\\("last_destination", ""\\)\\n'
-              r'\\1val savedRouteDestinationCoordinates = drivePrefs\\.getString\\("last_destination_coordinates", null\\)\\n'
-              r'\\1val savedRouteDurationMinutes = drivePrefs\\.getFloat\\("last_duration_minutes", 0f\\)'
+              r'(?m)^([ \t]*)val savedRouteGeometry = drivePrefs\.getString\("last_route_geometry", null\)\n'
+              r'\1val savedRouteDistance = drivePrefs\.getFloat\("last_distance_km", 0f\)\n'
+              r'\1val savedRouteDestination = drivePrefs\.getString\("last_destination", ""\)\n'
+              r'\1val savedRouteDestinationCoordinates = drivePrefs\.getString\("last_destination_coordinates", null\)\n'
+              r'\1val savedRouteDurationMinutes = drivePrefs\.getFloat\("last_duration_minutes", 0f\)'
           )
+          new = textwrap.dedent("""\
+          var savedRouteGeometry by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_route_geometry", null)) }
+          var savedRouteDistance by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_distance_km", 0f)) }
+          var savedRouteDestination by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination", "")) }
+          var savedRouteDestinationCoordinates by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination_coordinates", null)) }
+          var savedRouteDurationMinutes by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_duration_minutes", 0f)) }
+
+          DisposableEffect(drivePrefs) {
+              val routeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+                  when (key) {
+                      "last_route_geometry" -> savedRouteGeometry = prefs.getString(key, null)
+                      "last_distance_km" -> savedRouteDistance = prefs.getFloat(key, 0f)
+                      "last_destination" -> savedRouteDestination = prefs.getString(key, "")
+                      "last_destination_coordinates" -> savedRouteDestinationCoordinates = prefs.getString(key, null)
+                      "last_duration_minutes" -> savedRouteDurationMinutes = prefs.getFloat(key, 0f)
+                  }
+              }
+              drivePrefs.registerOnSharedPreferenceChangeListener(routeListener)
+              onDispose { drivePrefs.unregisterOnSharedPreferenceChangeListener(routeListener) }
+          }""")
           match = pattern.search(block)
           if match:
               indent = match.group(1)
-              replacement = "\\n".join(indent + line if line else "" for line in new.splitlines())
+              replacement = "\n".join(indent + line if line else "" for line in new.splitlines())
               block = pattern.sub(lambda _: replacement, block, count=1)
-          elif 'SharedPreferences.OnSharedPreferenceChangeListener' not in block:
-              raise SystemExit("Expected DriveScreen route preference block not found; refusing to build.")
+              s = s[:start] + block + s[next_screen if next_screen >= 0 else len(s):]
+              p.write_text(s)
+              print("Updated DriveScreen to observe route preference changes.")
+          elif "SharedPreferences.OnSharedPreferenceChangeListener" in block:
+              print("DriveScreen already contains a route preference listener.")
+          else:
+              raise SystemExit("Could not locate saved-route reads in DriveScreen; build stopped safely.")
+
           for needle in (
-              'SharedPreferences.OnSharedPreferenceChangeListener',
-              'last_route_geometry',
-              'last_destination_coordinates',
-              'LaunchedEffect(savedRouteGeometry)',
-              'updateFollow(FollowEvent.NAVIGATION_ENTRY)'
+              "SharedPreferences.OnSharedPreferenceChangeListener",
+              "last_route_geometry",
+              "last_destination_coordinates",
+              "LaunchedEffect(savedRouteGeometry)",
+              "updateFollow(FollowEvent.NAVIGATION_ENTRY)"
           ):
               if needle not in block:
-                  raise SystemExit("Active navigation synchronization verification failed: " + needle)
-          s = s[:start] + block + s[end:]
-          p.write_text(s)
-          print("Verified: active DriveScreen reacts to route geometry, destination, distance, coordinates and duration.")
+                  raise SystemExit("Navigation synchronization verification failed: " + needle)
+          print("Verified active navigation route synchronization source.")
           PY
 
       - name: Build debug APK and save build log
