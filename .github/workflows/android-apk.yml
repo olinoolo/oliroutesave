@@ -2315,11 +2315,24 @@ jobs:
 
           # Persist the home-screen destination so the route planner opens with the typed destination.
           route_state = 'var destination by rememberSaveable { mutableStateOf("") }'
-          route_state_new = 'var destination by rememberSaveable { mutableStateOf(LocalContext.current.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE).getString("destination", "").orEmpty()) }'
-          if route_state in s:
-              s = s.replace(route_state, route_state_new, 1)
-          elif route_state_new not in s:
+          if route_state not in s:
               raise SystemExit("Route planner destination state not found; refusing an unsafe patch.")
+          route_start = s.find("private fun RouteScreen(")
+          route_end = s.find("@Composable", route_start + 1)
+          if route_start < 0 or route_end < 0:
+              raise SystemExit("RouteScreen boundaries not found.")
+          route_block = s[route_start:route_end]
+          route_context_anchor = '    val context = LocalContext.current'
+          if 'getSharedPreferences("oli_home_route"' not in route_block:
+              if route_context_anchor not in route_block:
+                  raise SystemExit("RouteScreen context anchor not found.")
+              route_block = route_block.replace(route_context_anchor, route_context_anchor + """
+              LaunchedEffect(Unit) {
+                  val savedDestination = context.getSharedPreferences("oli_home_route", android.content.Context.MODE_PRIVATE)
+                      .getString("destination", "").orEmpty()
+                  if (destination.isBlank()) destination = savedDestination
+              }""", 1)
+              s = s[:route_start] + route_block + s[route_end:]
 
           home_start = s.find("private fun HomeScreen(")
           if home_start < 0:
