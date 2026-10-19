@@ -3509,12 +3509,11 @@ jobs:
           block = s[start:end]
 
           # The driving screen must react when route planning asynchronously saves a new route.
-          old = '''              val savedRouteGeometry = drivePrefs.getString("last_route_geometry", null)
-              val savedRouteDistance = drivePrefs.getFloat("last_distance_km", 0f)
-              val savedRouteDestination = drivePrefs.getString("last_destination", "")
-              val savedRouteDestinationCoordinates = drivePrefs.getString("last_destination_coordinates", null)
-              val savedRouteDurationMinutes = drivePrefs.getFloat("last_duration_minutes", 0f)'''
-          new = '''var savedRouteGeometry by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_route_geometry", null)) }
+          import re
+          import textwrap
+
+          new = textwrap.dedent("""\
+              var savedRouteGeometry by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_route_geometry", null)) }
               var savedRouteDistance by remember(drivePrefs) { mutableStateOf(drivePrefs.getFloat("last_distance_km", 0f)) }
               var savedRouteDestination by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination", "")) }
               var savedRouteDestinationCoordinates by remember(drivePrefs) { mutableStateOf(drivePrefs.getString("last_destination_coordinates", null)) }
@@ -3532,9 +3531,19 @@ jobs:
                   }
                   drivePrefs.registerOnSharedPreferenceChangeListener(routeListener)
                   onDispose { drivePrefs.unregisterOnSharedPreferenceChangeListener(routeListener) }
-              }'''
-          if old in block:
-              block = block.replace(old, new, 1)
+              }""")
+          pattern = re.compile(
+              r'(?m)^([ \\t]*)val savedRouteGeometry = drivePrefs\\.getString\\("last_route_geometry", null\\)\\n'
+              r'\\1val savedRouteDistance = drivePrefs\\.getFloat\\("last_distance_km", 0f\\)\\n'
+              r'\\1val savedRouteDestination = drivePrefs\\.getString\\("last_destination", ""\\)\\n'
+              r'\\1val savedRouteDestinationCoordinates = drivePrefs\\.getString\\("last_destination_coordinates", null\\)\\n'
+              r'\\1val savedRouteDurationMinutes = drivePrefs\\.getFloat\\("last_duration_minutes", 0f\\)'
+          )
+          match = pattern.search(block)
+          if match:
+              indent = match.group(1)
+              replacement = "\\n".join(indent + line if line else "" for line in new.splitlines())
+              block = pattern.sub(lambda _: replacement, block, count=1)
           elif 'SharedPreferences.OnSharedPreferenceChangeListener' not in block:
               raise SystemExit("Expected DriveScreen route preference block not found; refusing to build.")
           for needle in (
